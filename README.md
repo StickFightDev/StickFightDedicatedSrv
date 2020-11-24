@@ -1,0 +1,2 @@
+# Stick Fight: The Dedicated Server
+### This README will be populated once there is time. For now, just know that it's being worked on in my spare time and you can keep track of it here! I'll release client patching instructions in the future if you know enough C# (and Go!) to help!

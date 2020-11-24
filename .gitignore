@@ -1,0 +1,14 @@
+# Output executables
+*.exe
+*.app
+*.old
+
+# Log files
+*.log
+
+# Supervise
+run
+supervise/
+
+# OS leftovers
+desktop.ini
