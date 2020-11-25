@@ -71,7 +71,7 @@ const (
 	packetTypePlayerForceAddedAndBlock
 	packetTypePlayerLavaForceAdded
 	packetTypePlayerFallOut
-	packetTypePlayerWonWithRocochet
+	packetTypePlayerWonWithRicochet
 	packetTypeMapChange
 	packetTypeWeaponSpawned
 	packetTypeWeaponThrown
@@ -83,6 +83,7 @@ const (
 	packetTypeObjectUpdate
 	packetTypeObjectSpawned
 	packetTypeObjectSimpleDestruction
+	packetTypeObjectInvokeDestructionEvent
 	packetTypeObjectDestructionCollision
 	packetTypeGroundWeaponsInit
 	packetTypeMapInfo
@@ -130,8 +131,8 @@ func getPacketType(packetType packetType) string {
 		return "playerLavaForceAdded"
 	case packetTypePlayerFallOut:
 		return "playerFallOut"
-	case packetTypePlayerWonWithRocochet:
-		return "playerWonWithRocochet"
+	case packetTypePlayerWonWithRicochet:
+		return "playerWonWithRicochet"
 	case packetTypeMapChange:
 		return "mapChange"
 	case packetTypeWeaponSpawned:

@@ -1,8 +1,18 @@
 package main
 
+func onPlayerUpdate(p *packet, l *lobby) {
+	l.Broadcast(p, p.Src)
+}
+
 func onPlayerTookDamage(p *packet, l *lobby) {
 	playerIndex := l.GetPlayerIndex(p.Src)
+
 	if l.Players[playerIndex].Status.Dead {
+		log.Warn("Player ", playerIndex, " took damage despite being dead! Tossing...")
+		return
+	}
+	if !l.IsPlayerReady(playerIndex) && l.MapIndex > 0 { //Make sure player is ready if not in lobby map
+		log.Warn("Player ", playerIndex, " took damage despite not being ready! Tossing...")
 		return
 	}
 
@@ -45,5 +55,9 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 		l.Players[playerIndex].Status.Health -= damage
 	}
 
+	l.Broadcast(p, p.Src)
+}
+
+func onPlayerFallOut(p *packet, l *lobby) {
 	l.Broadcast(p, p.Src)
 }

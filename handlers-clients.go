@@ -132,14 +132,12 @@ func onClientRequestingToSpawn(p *packet, l *lobby) {
 		Y: p.ReadF32LENext(1)[0],
 		Z: p.ReadF32LENext(1)[0],
 	}
-	l.Players[playerIndex].Status.Position = position
 
 	rotation := vector3{
 		X: p.ReadF32LENext(1)[0],
 		Y: p.ReadF32LENext(1)[0],
 		Z: p.ReadF32LENext(1)[0],
 	}
-	l.Players[playerIndex].Status.Rotation = rotation
 
 	l.SpawnPlayer(playerIndex, position, rotation)
 }

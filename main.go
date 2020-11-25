@@ -18,6 +18,7 @@ var (
 	maxBufferSize = 8192
 	srv           *net.UDPConn
 	randomizer    *rand.Rand
+	connQueue     map[string]bool //map[UDP address] ignore this queue entry
 )
 
 const (
@@ -26,6 +27,7 @@ const (
 
 func main() {
 	randomizer = rand.New(rand.NewSource(time.Now().UnixNano()))
+	connQueue = make(map[string]bool)
 
 	s, err := net.ResolveUDPAddr("udp4", address)
 	if err != nil {
@@ -39,6 +41,7 @@ func main() {
 	addHandler(packetTypeClientRequestingIndex, onClientRequestingIndex)
 	addHandler(packetTypeClientRequestingToSpawn, onClientRequestingToSpawn)
 	addHandler(packetTypeClientReadyUp, onClientReadyUp)
+	addHandler(packetTypePlayerUpdate, onPlayerUpdate)
 	addHandler(packetTypePlayerTookDamage, onPlayerTookDamage)
 
 	log.Info("Listening on UDP socket ", s)
@@ -78,7 +81,16 @@ func main() {
 			}
 			lastTimestamp = timestamp
 
-			pkType := buffer[4] //1 byte at 0x4
+			pkTypeByte := buffer[4] //1 byte at 0x4
+			pkType := packetType(pkTypeByte)
+			switch pkType {
+			case packetTypeClientRequestingAccepting:
+				if ignore, ok := connQueue[addr.String()]; ok && !ignore {
+					log.Warn("ignoring multiple client accepting requests from queued client ", addr.String())
+					continue //We don't need to listen to multiple connection attempts from someone already queueing, it breaks things!
+				}
+				connQueue[addr.String()] = false
+			}
 
 			data := make([]byte, 0)
 			dataLen := n - 5
@@ -86,7 +98,7 @@ func main() {
 				data = buffer[5 : dataLen+5] //X bytes at 0x5
 			}
 
-			pk := newPacket(packetType(pkType))
+			pk := newPacket(pkType)
 			if len(data) > 0 {
 				pk.Grow(int64(len(data)))
 				pk.WriteBytes(0, data)

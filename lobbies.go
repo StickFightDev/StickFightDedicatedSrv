@@ -87,7 +87,12 @@ func (l *lobby) GetMaxHealth() float32 {
 }
 
 func (l *lobby) TryStartMatch() {
-	log.Info("Trying to start match")
+	log.Info("Trying to start match...")
+
+	if l.InFight {
+		log.Warn("Can't start match when already in fight!")
+		return
+	}
 
 	notReady := false
 	for _, pl := range l.Players {
@@ -101,11 +106,11 @@ func (l *lobby) TryStartMatch() {
 	}
 
 	if notReady {
-		log.Warn("Can't start match until all players are ready")
+		log.Warn("Can't start match until all players are ready!")
 	} else {
 		l.InFight = true
 		l.Broadcast(newPacket(packetTypeStartMatch), nil)
-		log.Info("Started match")
+		log.Info("Started match!")
 	}
 }
 
@@ -142,6 +147,9 @@ func (l *lobby) GetMap() *level {
 }
 
 func (l *lobby) ChangeMap(mapIndex int) {
+	//l.Lock()
+	//defer l.Unlock()
+
 	if mapIndex < 0 || mapIndex >= len(l.Maps) {
 		mapIndex = randomizer.Intn(len(l.Maps) - 1)
 	}
@@ -149,6 +157,7 @@ func (l *lobby) ChangeMap(mapIndex int) {
 	l.MapIndex = mapIndex
 
 	l.ResetPlayers()
+	l.InFight = false
 
 	packetMapChange := newPacket(packetTypeMapChange)
 	packetMapChange.Grow(2)
@@ -177,6 +186,16 @@ func (l *lobby) GetPlayersInLobby(excludePlayerIndex int) int {
 	return playerCount
 }
 
+func (l *lobby) IsPlayerReady(playerIndex int) bool {
+	if l.Players[playerIndex].Status.Ready {
+		return true
+	}
+	if l.Players[playerIndex].Status.HasSpawned {
+		return true
+	}
+	return false
+}
+
 func (l *lobby) ResetPlayers() {
 	for i := 0; i < len(l.Players); i++ {
 		if l.Players[i].Addr != nil {
@@ -189,7 +208,6 @@ func (l *lobby) ResetPlayers() {
 			l.Players[i].Status.Dead = false
 		}
 	}
-	l.InFight = false
 }
 
 func (l *lobby) SpawnPlayers() {
@@ -204,6 +222,11 @@ func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector3) {
 	l.Lock()
 	defer l.Unlock()
 
+	flag := byte(0)
+	if !l.IsInLobby() && l.GetPlayersInLobby(playerIndex) > 1 {
+		flag = byte(1)
+	}
+
 	packetClientSpawned := newPacket(packetTypeClientSpawned)
 	packetClientSpawned.Grow(26)
 	packetClientSpawned.WriteByteNext(byte(playerIndex))
@@ -211,17 +234,14 @@ func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector3) {
 		position.X, position.Y, position.Z,
 		rotation.X, rotation.Y, rotation.Z,
 	})
-
-	if !l.IsInLobby() && l.GetPlayersInLobby(playerIndex) > 1 {
-		packetClientSpawned.WriteByteNext(0x1)
-	} else {
-		packetClientSpawned.WriteByteNext(0x0)
-	}
+	packetClientSpawned.WriteByteNext(flag)
 
 	l.Players[playerIndex].Status.HasSpawned = true
 	l.Players[playerIndex].Status.Spawned = true
+	l.Players[playerIndex].Status.Position = position
+	l.Players[playerIndex].Status.Rotation = rotation
 
-	log.Info("Spawned player ", playerIndex, " at position ", position, " with rotation ", rotation)
+	log.Info("Spawned player ", playerIndex, " at position ", position, " with rotation ", rotation, " using flag ", flag)
 	l.Broadcast(packetClientSpawned, nil) //Tell all players that the new client has spawned
 }
 
@@ -247,7 +267,10 @@ func (l *lobby) AddPlayer(addr *net.UDPAddr) (playerIndex int, err error) {
 	packetClientAccepted := newPacket(packetTypeClientAccepted)
 	packetClientAccepted.Grow(1)
 	packetClientAccepted.WriteByteNext(byte(playerIndex))
-	l.Broadcast(packetClientAccepted, nil)
+	l.SendTo(packetClientAccepted, addr)
+	log.Info("Added player ", playerIndex, " to lobby")
+
+	connQueue[addr.String()] = true
 
 	return playerIndex, nil
 }
