@@ -58,6 +58,10 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 	l.Broadcast(p, p.Src)
 }
 
+func onPlayerTalked(p *packet, l *lobby) {
+	l.Broadcast(p, p.Src)
+}
+
 func onPlayerFallOut(p *packet, l *lobby) {
 	l.Broadcast(p, p.Src)
 }

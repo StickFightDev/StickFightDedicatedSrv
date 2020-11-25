@@ -303,9 +303,6 @@ func (l *lobby) GetHostIndex() int {
 }
 
 func (l *lobby) KickPlayerIndex(playerIndex int) error {
-	l.Lock()
-	defer l.Unlock()
-
 	if playerIndex >= l.MaxPlayers {
 		return errors.New("cannot kick out of bounds player index")
 	}
@@ -321,9 +318,6 @@ func (l *lobby) KickPlayerIndex(playerIndex int) error {
 }
 
 func (l *lobby) KickPlayerSteamID(steamID uint64) error {
-	l.Lock()
-	defer l.Unlock()
-
 	playersTried := 0
 	for i, pl := range l.Players {
 		if pl.SteamID != steamID {
@@ -341,9 +335,6 @@ func (l *lobby) KickPlayerSteamID(steamID uint64) error {
 }
 
 func (l *lobby) SetPlayerSteamID(addr *net.UDPAddr, steamID uint64) {
-	l.Lock()
-	defer l.Unlock()
-
 	for i := 0; i < len(l.Players); i++ {
 		if l.Players[i].Addr.String() == addr.String() {
 			l.Players[i].SteamID = steamID
