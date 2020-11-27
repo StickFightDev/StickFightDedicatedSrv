@@ -15,27 +15,61 @@ func onPingResponse(p *packet, l *lobby) {
 func onClientRequestingAccepting(p *packet, l *lobby) {
 	log.Debug("trying to accept client ", p.Src)
 
-	addedToLobby := false
+	if p.ByteCapacity() > 0 {
+		requestType := p.ReadByteNext()
+		switch requestType {
+		case 0x0: //Quick match
+			break
+		case 0x1: //Hosting a new lobby
+			privateLobby := p.ReadByteNext()
+
+			nl := newLobby()
+			_, err := nl.AddPlayer(p.Src)
+			if err != nil {
+				log.Error("unable to add client ", p.Src, " to newly created lobby by host match")
+				return
+			}
+
+			if privateLobby == 0x1 {
+				nl.Private = true
+			}
+
+			lobbies = append(lobbies, nl)
+			log.Debug("added client ", p.Src, " to newly created lobby by host match")
+		case 0x2: //Joining through invitation
+			inviterSteamID := p.ReadU64LENext(1)[0]
+
+			for _, testLobby := range lobbies {
+				for _, pl := range l.Players {
+					if pl.SteamID == inviterSteamID {
+						playerIndex, err := testLobby.AddPlayer(p.Src)
+						if err == nil {
+							log.Debug("added client ", p.Src, " by invitation from ", steamUsername(inviterSteamID), " to old lobby as player ", playerIndex)
+							return
+						}
+					}
+				}
+			}
+		}
+	}
+
 	for _, l := range lobbies {
 		playerIndex, err := l.AddPlayer(p.Src)
 		if err == nil {
-			addedToLobby = true
 			log.Debug("added client ", p.Src, " to old lobby as player ", playerIndex)
-			break
-		}
-	}
-	if !addedToLobby {
-		nl := newLobby()
-
-		_, err := nl.AddPlayer(p.Src)
-		if err != nil {
-			log.Error("unable to add client ", p.Src, " to newly created lobby")
 			return
 		}
-
-		lobbies = append(lobbies, nl)
-		log.Debug("added client ", p.Src, " to newly created lobby as host")
 	}
+
+	nl := newLobby()
+	_, err := nl.AddPlayer(p.Src)
+	if err != nil {
+		log.Error("unable to add client ", p.Src, " to newly created lobby")
+		return
+	}
+
+	lobbies = append(lobbies, nl)
+	log.Debug("added client ", p.Src, " to newly created lobby as host")
 }
 
 func onClientRequestingIndex(p *packet, l *lobby) {
@@ -119,7 +153,8 @@ func onClientRequestingToSpawn(p *packet, l *lobby) {
 	playerIndex := int(p.ReadByteNext()) //Read the player index
 
 	if realPlayerIndex := l.GetPlayerIndex(p.Src); realPlayerIndex != playerIndex {
-		log.Warn("Player ", realPlayerIndex, " is requesting for player ", playerIndex, " to spawn")
+		log.Error("Player ", realPlayerIndex, " is requesting for player ", playerIndex, " to spawn")
+		return
 	}
 
 	if l.Players[playerIndex].Status.Spawned {
@@ -143,9 +178,8 @@ func onClientRequestingToSpawn(p *packet, l *lobby) {
 }
 
 func onClientReadyUp(p *packet, l *lobby) {
-	playerIndex := p.ReadByte(0)
-
-	for i := 0; i < int(playerIndex); i++ {
+	/*checkCount := int(p.ReadByte(0))
+	for i := 0; i < checkCount; i++ {
 		playerIndex2 := int(p.ReadByte(int64(i + 1)))
 		l.Players[playerIndex2].Status.Ready = true
 	}
@@ -153,7 +187,13 @@ func onClientReadyUp(p *packet, l *lobby) {
 	if l.InFight {
 		l.SendTo(newPacket(packetTypeStartMatch), l.Players[int(p.ReadByte(1))].Addr)
 		return
-	}
+	}*/
 
+	l.Players[l.GetPlayerIndex(p.Src)].Status.Ready = true
+
+	l.TryStartMatch()
+}
+
+func onStartMatch(p *packet, l *lobby) {
 	l.TryStartMatch()
 }

@@ -41,4 +41,5 @@ type playerStatus struct {
 	Spawned    bool    //Whether or not the player is currently spawned, becomes false upon death
 	Health     float32 //Player health
 	Dead       bool    //Whether or not the player is dead
+	Moved      bool    //If the player has sent a playerUpdate packet
 }

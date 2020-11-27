@@ -16,10 +16,10 @@ type lobby struct {
 
 	//Lobby settings
 	MaxPlayers      int
-	MapCount        byte
 	Health          byte
 	Regen           byte
 	WeaponSpawnRate byte
+	Private         bool
 
 	//Session tracker
 	MapIndex   int  //The current map as indexed from lobby.Maps, -1 for lobby
@@ -45,7 +45,8 @@ func newLobby() *lobby {
 		MaxPlayers: defaultMaxPlayers,
 		Players:    make([]player, defaultMaxPlayers),
 		Maps:       defaultMaps,
-		MapIndex:   -1,
+		MapIndex:   0,
+		LastWinner: byte(255),
 	}
 
 	return daLobby
@@ -95,11 +96,12 @@ func (l *lobby) TryStartMatch() {
 	}
 
 	notReady := false
-	for _, pl := range l.Players {
-		if pl.Addr != nil {
+	for i := 0; i < l.MaxPlayers; i++ {
+		pl := l.Players[i]
+		if pl.Addr == nil {
 			continue
 		}
-		if !pl.Status.Ready || !pl.Status.Spawned {
+		if !pl.Status.Ready {
 			notReady = true
 			break
 		}
@@ -156,7 +158,7 @@ func (l *lobby) ChangeMap(mapIndex int) {
 
 	l.MapIndex = mapIndex
 
-	l.ResetPlayers()
+	l.UnReadyAllPlayers()
 	l.InFight = false
 
 	packetMapChange := newPacket(packetTypeMapChange)
@@ -196,15 +198,10 @@ func (l *lobby) IsPlayerReady(playerIndex int) bool {
 	return false
 }
 
-func (l *lobby) ResetPlayers() {
+func (l *lobby) UnReadyAllPlayers() {
 	for i := 0; i < len(l.Players); i++ {
 		if l.Players[i].Addr != nil {
-			l.Players[i].Status.IsRed = false
 			l.Players[i].Status.Ready = false
-			l.Players[i].Status.Position = vector3{0, 0, 0}
-			l.Players[i].Status.Rotation = vector3{0, 0, 0}
-			l.Players[i].Status.Spawned = false
-			l.Players[i].Status.Health = l.GetMaxHealth()
 			l.Players[i].Status.Dead = false
 		}
 	}
@@ -213,7 +210,7 @@ func (l *lobby) ResetPlayers() {
 func (l *lobby) SpawnPlayers() {
 	for i := 0; i < len(l.Players); i++ {
 		if l.Players[i].Addr != nil && !l.Players[i].Status.Spawned {
-			l.SpawnPlayer(i, vector3{0, 0, 0}, vector3{0, 0, 0})
+			l.SpawnPlayer(i, l.Players[i].Status.Position, l.Players[i].Status.Rotation)
 		}
 	}
 }
@@ -222,8 +219,9 @@ func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector3) {
 	l.Lock()
 	defer l.Unlock()
 
-	flag := byte(0)
-	if !l.IsInLobby() && l.GetPlayersInLobby(playerIndex) > 1 {
+	flag := byte(0) //0 (default) = revive player for new map, 1 = forced die for spawned player
+	//if !l.IsInLobby() && l.GetPlayersInLobby(playerIndex) > 1 {
+	if l.Players[playerIndex].Status.HasSpawned {
 		flag = byte(1)
 	}
 
@@ -319,7 +317,8 @@ func (l *lobby) KickPlayerIndex(playerIndex int) error {
 
 func (l *lobby) KickPlayerSteamID(steamID uint64) error {
 	playersTried := 0
-	for i, pl := range l.Players {
+	for i := 0; i < len(l.Players); i++ {
+		pl := l.Players[i]
 		if pl.SteamID != steamID {
 			playersTried++
 			continue
@@ -327,7 +326,7 @@ func (l *lobby) KickPlayerSteamID(steamID uint64) error {
 		l.Players[i] = player{}
 		break
 	}
-	if playersTried == l.MaxPlayers {
+	if playersTried == l.GetPlayersInLobby(-1) {
 		return errors.New("tried to kick player that isn't in lobby")
 	}
 

@@ -45,6 +45,7 @@ func main() {
 	addHandler(packetTypePlayerTookDamage, onPlayerTookDamage)
 	addHandler(packetTypePlayerTalked, onPlayerTalked)
 	addHandler(packetTypePlayerFallOut, onPlayerFallOut)
+	addHandler(packetTypeStartMatch, onStartMatch)
 
 	log.Info("Listening on UDP socket ", s)
 	srv, err = net.ListenUDP("udp4", s)
