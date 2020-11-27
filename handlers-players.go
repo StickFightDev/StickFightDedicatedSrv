@@ -85,5 +85,14 @@ func onPlayerTalked(p *packet, l *lobby) {
 }
 
 func onPlayerFallOut(p *packet, l *lobby) {
+	playerIndex := int(p.ReadByteNext())
+
+	log.Info("Player ", playerIndex, " fell out of the map")
+	l.Players[playerIndex].Status.Health = 0
+	l.Players[playerIndex].Status.Dead = true
+	l.Players[playerIndex].Stats.Deaths++
+
+	l.CheckWinner(playerIndex)
+
 	l.Broadcast(p, p.Src)
 }
