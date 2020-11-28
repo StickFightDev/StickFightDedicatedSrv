@@ -192,9 +192,6 @@ func (l *lobby) IsPlayerReady(playerIndex int) bool {
 	if l.Players[playerIndex].Status.Ready {
 		return true
 	}
-	if l.Players[playerIndex].Status.HasSpawned {
-		return true
-	}
 	return false
 }
 
