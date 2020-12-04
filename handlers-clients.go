@@ -3,7 +3,7 @@ package main
 func onPing(p *packet, l *lobby) {
 	if p.ByteCapacity() != 0 {
 		log.Debug("ping from ", p.Src, ", sending pong")
-		l.SendTo(newPacket(packetTypePingResponse), p.Src)
+		l.SendTo(newPacket(packetTypePingResponse, 0, p.TargetSteamID), p.Src)
 	} else {
 		log.Debug("ping from ", p.Src)
 	}
@@ -13,83 +13,49 @@ func onPingResponse(p *packet, l *lobby) {
 }
 
 func onClientRequestingAccepting(p *packet, l *lobby) {
-	log.Debug("trying to accept client ", p.Src)
-
-	if p.ByteCapacity() > 0 {
-		requestType := p.ReadByteNext()
-		switch requestType {
-		case 0x0: //Quick match
-			break
-		case 0x1: //Hosting a new lobby
-			privateLobby := p.ReadByteNext()
-
-			nl := newLobby()
-			_, err := nl.AddPlayer(p.Src)
-			if err != nil {
-				log.Error("unable to add client ", p.Src, " to newly created lobby by host match")
-				return
-			}
-
-			if privateLobby == 0x1 {
-				nl.Private = true
-			}
-
-			lobbies = append(lobbies, nl)
-			log.Debug("added client ", p.Src, " to newly created lobby by host match")
-		case 0x2: //Joining through invitation
-			inviterSteamID := p.ReadU64LENext(1)[0]
-
-			for _, testLobby := range lobbies {
-				for _, pl := range l.Players {
-					if pl.SteamID == inviterSteamID {
-						playerIndex, err := testLobby.AddPlayer(p.Src)
-						if err == nil {
-							log.Debug("added client ", p.Src, " by invitation from ", steamUsername(inviterSteamID), " to old lobby as player ", playerIndex)
-							return
-						}
-					}
-				}
-			}
-		}
-	}
-
-	for _, l := range lobbies {
-		playerIndex, err := l.AddPlayer(p.Src)
-		if err == nil {
-			log.Debug("added client ", p.Src, " to old lobby as player ", playerIndex)
-			return
-		}
-	}
-
-	nl := newLobby()
-	_, err := nl.AddPlayer(p.Src)
-	if err != nil {
-		log.Error("unable to add client ", p.Src, " to newly created lobby")
-		return
-	}
-
-	lobbies = append(lobbies, nl)
-	log.Debug("added client ", p.Src, " to newly created lobby as host")
+	log.Debug("accepted client ", p.Src)
+	packetClientAccepted := newPacket(packetTypeClientAccepted, 1, 0)
+	l.SendTo(packetClientAccepted, p.Src)
 }
 
 func onClientRequestingIndex(p *packet, l *lobby) {
+	playerIndex := 0
+
+	if l == nil {
+		for _, testLobby := range lobbies {
+			newPlayerIndex, err := testLobby.AddPlayer(p.Src)
+			if err == nil {
+				log.Debug("added client ", p.Src, " to old lobby as player ", newPlayerIndex)
+				playerIndex = newPlayerIndex
+				l = testLobby
+				break
+			}
+		}
+
+		if l == nil {
+			l = newLobby()
+			_, err := l.AddPlayer(p.Src)
+			if err != nil {
+				log.Error("unable to add client ", p.Src, " to newly created lobby: ", err)
+				packetClientInit := newPacket(packetTypeClientInit, 0, 0)
+				packetClientInit.Grow(1)
+				packetClientInit.WriteByteNext(0) //Set to != 1 to refuse connection
+				l.SendTo(packetClientInit, p.Src)
+				return
+			}
+			lobbies = append(lobbies, l)
+			log.Debug("added client ", p.Src, " to newly created lobby as host")
+		}
+	}
+
 	steamID := p.ReadU64LENext(1)[0]
 	_ = l.KickPlayerSteamID(steamID) //Kick this player if they're still connected from a previous session
-
-	playerIndex := l.GetPlayerIndex(p.Src)
-	if playerIndex == -1 {
-		packetClientInit := newPacket(packetTypeClientInit)
-		packetClientInit.Grow(1)
-		packetClientInit.WriteByteNext(0) //Set to != 1 to refuse connection
-		l.SendTo(packetClientInit, p.Src)
-		return
-	}
 
 	if steamID == 0 { //Safety net for running additional instances of the game, disable for production servers
 		steamID = 1337 + uint64(playerIndex)
 	}
 
-	packetClientJoined := newPacket(packetTypeClientJoined)
+	packetClientJoined := newPacket(packetTypeClientJoined, 0, 0)
 	packetClientJoined.Grow(9)
 	packetClientJoined.WriteByteNext(byte(playerIndex))
 	packetClientJoined.WriteU64LENext([]uint64{steamID})
@@ -99,7 +65,7 @@ func onClientRequestingIndex(p *packet, l *lobby) {
 
 	l.SetPlayerSteamID(p.Src, steamID)
 
-	packetClientInit := newPacket(packetTypeClientInit)
+	packetClientInit := newPacket(packetTypeClientInit, 0, 0)
 
 	packetClientInit.Grow(2)
 	packetClientInit.WriteByteNext(0x1)               //Set to 1 to accept connection, 0 with no other data to refuse connection
@@ -147,6 +113,8 @@ func onClientRequestingIndex(p *packet, l *lobby) {
 
 	l.SendTo(packetClientInit, p.Src)
 	log.Info("Sent player index: ", packetClientInit)
+
+	connState[p.Src.String()] = 3 //Mark player as in lobby
 }
 
 func onClientRequestingToSpawn(p *packet, l *lobby) {
@@ -157,7 +125,7 @@ func onClientRequestingToSpawn(p *packet, l *lobby) {
 		return
 	}
 
-	if l.Players[playerIndex].Status.Spawned {
+	if l.Players[playerIndex].Status.Spawned && !l.Players[playerIndex].Status.Ready {
 		log.Error("Player ", playerIndex, " has already spawned")
 		return
 	}
