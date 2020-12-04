@@ -34,6 +34,15 @@ func newPacket(pkType packetType, channel int, targetSteamID uint64) *packet {
 }
 
 func (p *packet) Handle(l *lobby) {
+	//Tunnel the packet to a target client if specified, otherwise try to handle it
+	if p.TargetSteamID != 0 && l != nil {
+		for _, pl := range l.Players {
+			if pl.Addr != nil && pl.SteamID == p.TargetSteamID {
+				l.SendTo(p, pl.Addr)
+				break
+			}
+		}
+	}
 	if handler, ok := packetHandlers[p.Type]; ok { //If p.Type (the packet type) is a key in the packetHandlers map
 		handler(p, l) //Execute its value handler, which is a packet handler function that takes the source packet from the socket and its lobby as arguments
 	} else {

@@ -125,10 +125,10 @@ func onClientRequestingToSpawn(p *packet, l *lobby) {
 		return
 	}
 
-	if l.Players[playerIndex].Status.Spawned && !l.Players[playerIndex].Status.Ready {
-		log.Error("Player ", playerIndex, " has already spawned")
-		return
-	}
+	//if l.Players[playerIndex].Status.Spawned && !l.Players[playerIndex].Status.Ready {
+	//	log.Error("Player ", playerIndex, " has already spawned")
+	//	return
+	//}
 
 	position := vector3{
 		X: p.ReadF32LENext(1)[0],
