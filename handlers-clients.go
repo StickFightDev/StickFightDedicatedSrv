@@ -55,6 +55,15 @@ func onClientRequestingIndex(p *packet, l *lobby) {
 		steamID = 1337 + uint64(playerIndex)
 	}
 
+	localPlayerCount := int(p.ReadByteNext())
+	if localPlayerCount > 1 { //We don't support multiple local players yet!
+		packetClientInit := newPacket(packetTypeClientInit, 0, 0)
+		packetClientInit.Grow(1)
+		packetClientInit.WriteByteNext(0) //Set to != 1 to refuse connection
+		l.SendTo(packetClientInit, p.Src)
+		return
+	}
+
 	packetClientJoined := newPacket(packetTypeClientJoined, 0, 0)
 	packetClientJoined.Grow(9)
 	packetClientJoined.WriteByteNext(byte(playerIndex))

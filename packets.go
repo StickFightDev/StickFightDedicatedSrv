@@ -34,7 +34,7 @@ func newPacket(pkType packetType, channel int, targetSteamID uint64) *packet {
 }
 
 func (p *packet) Handle(l *lobby) {
-	//Tunnel the packet to a target client if specified, otherwise try to handle it
+	//Tunnel the packet to a target client if specified
 	if p.TargetSteamID != 0 && l != nil {
 		for _, pl := range l.Players {
 			if pl.Addr != nil && pl.SteamID == p.TargetSteamID {
