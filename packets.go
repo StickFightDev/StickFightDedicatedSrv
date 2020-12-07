@@ -1,7 +1,7 @@
 package main
 
 import (
-	"encoding/binary"
+	"errors"
 	"fmt"
 	"net"
 	"time"
@@ -13,6 +13,11 @@ var (
 	packetHandlers map[packetType]func(*packet, *lobby) = make(map[packetType]func(*packet, *lobby))
 )
 
+const (
+	sophSize = 5
+	eophSize = 9
+)
+
 func addHandler(packetType packetType, handler func(*packet, *lobby)) {
 	packetHandlers[packetType] = handler
 }
@@ -20,31 +25,31 @@ func addHandler(packetType packetType, handler func(*packet, *lobby)) {
 type packet struct {
 	*crunch.Buffer //Holds the data buffer, and provides additional methods to directly read and write on this buffer
 
-	Timestamp     uint32       //The timestamp of the packet
-	Src           *net.UDPAddr //The source UDP socket where this packet came from, nil if sending a packet
-	Channel       int          //The channel for this packet to travel through
-	SteamID       uint64       //The Steam ID of the user who sent this packet
-	TargetSteamID uint64       //The Steam ID of the user intended to receive this packet
-	Type          packetType   //The type of the packet, to allow easy packet creation
+	Timestamp uint32       //The timestamp of the packet
+	Src       *net.UDPAddr //The source UDP socket where this packet came from, nil if sending a packet
+	Channel   int          //The channel for this packet to travel through
+	SteamID   uint64       //The Steam ID of the user who sent or is intended to receive this packet
+	Type      packetType   //The type of the packet, to allow easy packet creation
 }
 
-func newPacket(pkType packetType, channel int, targetSteamID uint64) *packet {
-	pk := &packet{crunch.NewBuffer(make([]byte, 0)), uint32(time.Now().Unix()), nil, channel, 0, targetSteamID, pkType}
+func newPacket(pkType packetType, channel int, steamID uint64) *packet {
+	pk := &packet{crunch.NewBuffer(make([]byte, 0)), uint32(time.Now().Unix()), nil, channel, steamID, pkType}
 	return pk
 }
 
 func (p *packet) Handle(l *lobby) {
 	//Tunnel the packet to a target client if specified
-	if p.TargetSteamID != 0 && l != nil {
+	if p.SteamID != 0 && l != nil {
 		for _, pl := range l.Players {
-			if pl.Addr != nil && pl.SteamID == p.TargetSteamID {
+			if pl.Addr != nil && pl.SteamID == p.SteamID {
 				l.SendTo(p, pl.Addr)
 				break
 			}
 		}
 	}
 	if handler, ok := packetHandlers[p.Type]; ok { //If p.Type (the packet type) is a key in the packetHandlers map
-		handler(p, l) //Execute its value handler, which is a packet handler function that takes the source packet from the socket and its lobby as arguments
+		p.SeekByte(0, false) //Make sure the handler starts at offset 0 regardless of pre-processing
+		handler(p, l)        //Execute its value handler, which is a packet handler function that takes the source packet from the socket and its lobby as arguments
 	} else {
 		log.Error("packet type ", getPacketType(p.Type), " not implemented yet, data: ", p.AsBytes()) //We don't have a handler for this packet, so log it and its data as decimal bytes
 	}
@@ -54,25 +59,57 @@ func (p *packet) Handle(l *lobby) {
 }
 
 func (p *packet) String() string {
-	return fmt.Sprintf("[@%s-%d %s] %s -> %s: %s %v", p.Src, p.Channel, time.Unix(int64(p.Timestamp), 0).String(), steamUsername(p.SteamID), steamUsername(p.TargetSteamID), getPacketType(p.Type), p.Bytes())
+	str := fmt.Sprintf("[%d %d]", p.Channel, int64(p.Timestamp))
+	if p.SteamID != noSteamID {
+		str += " " + steamUsername(p.SteamID)
+	}
+	str += fmt.Sprintf(": %s %v", getPacketType(p.Type), p.Bytes())
+
+	return str
 }
 
 func (p *packet) AsBytes() []byte {
-	//Holds the raw packet as bytes
-	array := make([]byte, 0)
+	buf := crunch.NewBuffer(make([]byte, sophSize+eophSize+int(p.ByteCapacity())))
 
-	timestamp := make([]byte, 4)
-	binary.LittleEndian.PutUint32(timestamp, uint32(time.Now().Unix()))
+	buf.WriteU32LENext([]uint32{p.Timestamp})
+	buf.WriteByteNext(byte(p.Type))
+	if p.ByteCapacity() > 0 {
+		buf.WriteBytesNext(p.Bytes())
+	}
+	buf.WriteU64LENext([]uint64{p.SteamID})
+	buf.WriteByteNext(byte(p.Channel))
+	return buf.Bytes()
+}
 
-	steamID := make([]byte, 8)
-	binary.LittleEndian.PutUint64(steamID, p.SteamID)
+func newPacketFromBytes(data []byte) (*packet, error) {
+	if len(data) < sophSize+eophSize {
+		return nil, errors.New("packet size too small")
+	}
 
-	array = append(array, timestamp...)    //Timestamp of the packet
-	array = append(array, byte(p.Type))    //Type of the packet
-	array = append(array, p.Bytes()...)    //Packet data
-	array = append(array, steamID...)      //Steam ID of the source user
-	array = append(array, byte(p.Channel)) //Channel for packet to travel
-	return array
+	buf := crunch.NewBuffer(data)
+	dataLen := int64(len(data) - sophSize - eophSize)
+
+	//Official start of packet header
+	//Size: 5 bytes + data
+	//0x0  (4 bytes, uint32) - Packet timestamp
+	//0x4  (1 byte,  int)    - Packet type
+	//0x5… (x bytes)         - Packet data, to be interpreted by the packet type's handler
+	p := newPacket(packetTypeNull, 0, 0)
+	p.Timestamp = buf.ReadU32LENext(1)[0]
+	p.Type = packetType(buf.ReadByteNext())
+	if dataLen > 0 {
+		p.Grow(dataLen)
+		p.WriteBytesNext(buf.ReadBytesNext(dataLen))
+	}
+
+	//Custom end of packet header, directly following the packet's data
+	//Size so far: 9 bytes
+	//0x0 (8 bytes, uint64) - The Steam ID of the user who is the intended recipient of the packet
+	//0x8 (1 byte,  int)    - The channel, which was originally handled by Steam's networking library, and is required by the game's packet handling logic
+	p.SteamID = buf.ReadU64LENext(1)[0]
+	p.Channel = int(buf.ReadByteNext())
+
+	return p, nil
 }
 
 type packetType byte
@@ -117,6 +154,7 @@ const (
 	packetTypeObjectHello
 	packetTypeOptionsChanged
 	packetTypeKickPlayer
+	packetTypeNull = 255
 )
 
 func getPacketType(packetType packetType) string {

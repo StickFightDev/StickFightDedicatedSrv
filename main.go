@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/binary"
 	"math/rand"
 	"net"
 	"os"
@@ -78,6 +77,7 @@ func main() {
 	addHandler(packetTypePlayerTalked, onPlayerTalked)
 	addHandler(packetTypePlayerFallOut, onPlayerFallOut)
 	addHandler(packetTypeStartMatch, onStartMatch)
+	addHandler(packetTypeKickPlayer, onKickPlayer)
 
 	log.Info("Listening on UDP socket ", s)
 	srv, err = net.ListenUDP("udp4", s)
@@ -128,34 +128,26 @@ func main() {
 			//Trim the buffer
 			buffer = buffer[0:n]
 
-			//Custom end of packet header, directly following the packet's data
-			//Size so far: 9 byte
-			//0x0 (8 bytes, uint64) - The Steam ID of the user who is the intended recipient of the packet
-			//0x8 (1 byte,  int)    - The channel, which was originally handled by Steam's networking library, and is required by the game's packet handling logic
+			//Read the buffer into a packet
+			pk, err := newPacketFromBytes(buffer)
+			if err != nil {
+				log.Error(err)
+				continue //Goodbye false packet!
+			}
+			//Set the source address of the packet
+			pk.Src = addr
 
-			//Read needed stuff from the custom end of packet header
-			eophSize := 9
-			targetSteamID := binary.LittleEndian.Uint64(buffer[len(buffer)-9 : len(buffer)-1])
-			channel := int(buffer[len(buffer)-1])
-
-			//Remove the end of packet header from the raw buffer, so that the data of the packet doesn't include it
-			buffer = buffer[0 : len(buffer)-eophSize]
-
-			//Get the timestamp of the packet's original manifestation
-			timestamp := binary.LittleEndian.Uint32(buffer[0:4]) //4 bytes at 0x0
-			if timestamp < lastTimestamp {                       //This packet is older than the most recent packet, so it is outdated and must be ignored
-				log.Warn("outdated packet, last timestamp was ", lastTimestamp, " and current timestamp is ", timestamp)
+			if pk.Timestamp < lastTimestamp { //This packet is older than the most recent packet, so it is outdated and must be ignored
+				log.Warn("outdated packet from ", addr, ", last timestamp was ", lastTimestamp, " and packet timestamp is ", pk.Timestamp)
 				continue //Goodbye packet, maybe you'll be faster next time :c
 			}
-			//Update the last recorded packet timestamp
-			lastTimestamp = timestamp
-
-			//Get the type of the packet
-			pkTypeByte := buffer[4]          //1 byte at 0x4
-			pkType := packetType(pkTypeByte) //Translate from byte to packetType, which is really just a byte
+			//Set the last timestamp to system time
+			//lastTimestamp = uint32(time.Now().Unix())
+			//Set the last timestamp
+			lastTimestamp = pk.Timestamp
 
 			//Packet firewall
-			/*switch pkType {
+			/*switch pk.Type {
 			case packetTypePing, packetTypePingResponse:
 				break
 			case packetTypeClientRequestingAccepting:
@@ -172,29 +164,12 @@ func main() {
 				connState[addr.String()] = 2
 			default:
 				if connState[addr.String()] < 3 {
-					log.Warn("packet type ", getPacketType(pkType), " not allowed, client ", addr.String(), " is still waiting to be queued")
+					log.Warn("packet type ", getPacketType(pk.Type), " not allowed, client ", addr.String(), " is still waiting to be queued")
 					continue
 				}
 			}*/
 
-			//Create a slice to store the data bytes
-			data := make([]byte, 0)
-			dataLen := n - 5 - eophSize //Calculate the length of the packet data
-			if dataLen > 0 {            //If there's data
-				data = buffer[5 : dataLen+5] //Read the data from 0x5
-			}
-
-			//Create the packet
-			pk := newPacket(pkType, channel, targetSteamID) //Create a packet in memory to store our packet data in for handling
-			if len(data) > 0 {                              //If there's data
-				pk.Grow(int64(len(data))) //Grow the packet's internal buffer to be able to store the data
-				pk.WriteBytes(0, data)    //Write the data into the packet's internal buffer starting at 0x0
-			}
-			pk.Timestamp = timestamp
-			pk.Src = addr                    //Store the source address of the packet
-			pk.TargetSteamID = targetSteamID //Store the target Steam ID of the packet
-
-			log.Info("Handling packet: ", pk)
+			log.Info("Handling packet from ", pk.Src, ": ", pk)
 			go pk.Handle(connLobby) //Handle the packet in a goroutine
 		}
 	}()

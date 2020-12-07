@@ -49,6 +49,22 @@ func newLobby() *lobby {
 		LastWinner: byte(255),
 	}
 
+	fakeUDP, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:1338")
+
+	daLobby.Players[0] = player{
+		Addr:    fakeUDP,
+		SteamID: 76561197960287930,
+		Stats: playerStats{
+			Wins:  69,
+			Kills: 69,
+		},
+		Status: playerStatus{
+			Ready: true,
+		},
+		UpdateChannel: 2,
+		EventChannel:  3,
+	}
+
 	return daLobby
 }
 
@@ -121,7 +137,7 @@ func (l *lobby) TryStartMatch() {
 		}
 		if !pl.Status.Ready {
 			notReady = true
-			l.SendTo(newPacket(packetTypeStartMatch, 1, 0), pl.Addr)
+			l.SendTo(newPacket(packetTypeStartMatch, 1, l.Players[l.GetHostIndex()].SteamID), pl.Addr)
 			break
 		}
 	}
@@ -237,7 +253,6 @@ func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector3) {
 
 	flag := byte(0) //0 (default) = revive player for new map, 1 = forced die for spawned player
 	if !l.IsInLobby() && l.GetPlayersInLobby(playerIndex) > 1 {
-		//if l.Players[playerIndex].Status.HasSpawned {
 		flag = byte(1)
 	}
 
@@ -250,10 +265,11 @@ func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector3) {
 	})
 	packetClientSpawned.WriteByteNext(flag)
 
-	l.Players[playerIndex].Status.HasSpawned = true
 	l.Players[playerIndex].Status.Spawned = true
 	l.Players[playerIndex].Status.Position = position
 	l.Players[playerIndex].Status.Rotation = rotation
+	l.Players[playerIndex].UpdateChannel = playerIndex*2 + 2
+	l.Players[playerIndex].EventChannel = l.Players[playerIndex].UpdateChannel + 1
 
 	log.Info("Spawned player ", playerIndex, " at position ", position, " with rotation ", rotation, " using flag ", flag)
 	l.Broadcast(packetClientSpawned, nil) //Tell all players that the new client has spawned
@@ -337,7 +353,6 @@ func (l *lobby) KickPlayerSteamID(steamID uint64) error {
 			continue
 		}
 		l.Players[i] = player{}
-		break
 	}
 	if playersTried == l.GetPlayersInLobby(-1) {
 		return errors.New("tried to kick player that isn't in lobby")

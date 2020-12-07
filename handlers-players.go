@@ -1,5 +1,7 @@
 package main
 
+import "strings"
+
 func onPlayerUpdate(p *packet, l *lobby) {
 	for i := 0; i < len(l.Players); i++ {
 		if l.Players[i].Addr == p.Src {
@@ -82,6 +84,47 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 
 func onPlayerTalked(p *packet, l *lobby) {
 	l.Broadcast(p, p.Src)
+
+	msg := string(p.Bytes())
+	if l.GetHostIndex() == l.GetPlayerIndex(p.Src) && string(msg[0]) == "/" {
+		respMsg := ""
+
+		cmd := strings.Split(string(msg[1:]), " ")
+		switch cmd[0] {
+		case "echo":
+			if len(cmd) < 2 {
+				respMsg = "Must specify message to echo!"
+				break
+			}
+			respMsg = strings.Join(cmd[1:], " ")
+		case "kick":
+			if len(cmd) < 2 {
+				respMsg = "Must specify player to kick!"
+				break
+			}
+			switch cmd[1] {
+			case "1", "yellow", "y":
+				l.KickPlayerIndex(0)
+			case "2", "blue", "b":
+				l.KickPlayerIndex(1)
+			case "3", "red", "r":
+				l.KickPlayerIndex(2)
+			case "4", "green", "g":
+				l.KickPlayerIndex(3)
+			default:
+				respMsg = "Unknown player!"
+				break
+			}
+			respMsg = "Kicked player: " + cmd[1]
+		default:
+			respMsg = "Unknown command!"
+		}
+
+		resp := newPacket(packetTypePlayerTalked, l.Players[l.GetHostIndex()].EventChannel, l.Players[l.GetHostIndex()].SteamID)
+		resp.Grow(int64(len(respMsg)))
+		resp.WriteBytesNext([]byte(respMsg))
+		l.SendTo(resp, p.Src)
+	}
 }
 
 func onPlayerFallOut(p *packet, l *lobby) {

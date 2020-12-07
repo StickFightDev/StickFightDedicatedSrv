@@ -7,6 +7,9 @@ type player struct {
 	SteamID uint64
 	Stats   playerStats
 	Status  playerStatus
+
+	UpdateChannel int
+	EventChannel  int
 }
 
 type playerStats struct {
@@ -37,9 +40,8 @@ type playerStatus struct {
 	//PlayerObject *gameObject
 
 	//Additional statuses
-	HasSpawned bool    //Whether or not the player has ever spawned before
-	Spawned    bool    //Whether or not the player is currently spawned, becomes false upon death
-	Health     float32 //Player health
-	Dead       bool    //Whether or not the player is dead
-	Moved      bool    //If the player has sent a playerUpdate packet
+	Spawned bool    //Whether or not the player is currently spawned, becomes false upon death
+	Health  float32 //Player health
+	Dead    bool    //Whether or not the player is dead
+	Moved   bool    //If the player has sent a playerUpdate packet
 }

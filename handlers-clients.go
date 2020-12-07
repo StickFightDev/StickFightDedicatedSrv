@@ -2,18 +2,13 @@ package main
 
 func onPing(p *packet, l *lobby) {
 	if p.ByteCapacity() != 0 {
-		log.Debug("ping from ", p.Src, ", sending pong")
-		l.SendTo(newPacket(packetTypePingResponse, 0, p.TargetSteamID), p.Src)
-	} else {
-		log.Debug("ping from ", p.Src)
+		l.SendTo(newPacket(packetTypePingResponse, 0, p.SteamID), p.Src)
 	}
 }
 func onPingResponse(p *packet, l *lobby) {
-	log.Debug("pong from ", p.Src)
 }
 
 func onClientRequestingAccepting(p *packet, l *lobby) {
-	log.Debug("accepted client ", p.Src)
 	packetClientAccepted := newPacket(packetTypeClientAccepted, 1, 0)
 	l.SendTo(packetClientAccepted, p.Src)
 }
@@ -68,9 +63,7 @@ func onClientRequestingIndex(p *packet, l *lobby) {
 	packetClientJoined.Grow(9)
 	packetClientJoined.WriteByteNext(byte(playerIndex))
 	packetClientJoined.WriteU64LENext([]uint64{steamID})
-
 	l.Broadcast(packetClientJoined, p.Src)
-	log.Debug("Told lobby that a new client is in town: ", packetClientJoined)
 
 	l.SetPlayerSteamID(p.Src, steamID)
 
@@ -89,9 +82,9 @@ func onClientRequestingIndex(p *packet, l *lobby) {
 	for i := 0; i < len(l.Players); i++ {
 		packetClientInit.Grow(8)
 		packetClientInit.WriteU64LENext([]uint64{l.Players[i].SteamID})
-		log.Debug("Player: ", l.Players[i])
 
 		if l.Players[i].SteamID != 0 && l.Players[i].Addr.String() != p.Src.String() {
+			log.Debug("Player: ", l.Players[i])
 			packetClientInit.Grow(52)
 			packetClientInit.WriteI32LENext([]int32{
 				l.Players[i].Stats.Wins,
@@ -121,9 +114,6 @@ func onClientRequestingIndex(p *packet, l *lobby) {
 	})
 
 	l.SendTo(packetClientInit, p.Src)
-	log.Info("Sent player index: ", packetClientInit)
-
-	connState[p.Src.String()] = 3 //Mark player as in lobby
 }
 
 func onClientRequestingToSpawn(p *packet, l *lobby) {
@@ -133,11 +123,6 @@ func onClientRequestingToSpawn(p *packet, l *lobby) {
 		log.Error("Player ", realPlayerIndex, " is requesting for player ", playerIndex, " to spawn")
 		return
 	}
-
-	//if l.Players[playerIndex].Status.Spawned && !l.Players[playerIndex].Status.Ready {
-	//	log.Error("Player ", playerIndex, " has already spawned")
-	//	return
-	//}
 
 	position := vector3{
 		X: p.ReadF32LENext(1)[0],
@@ -173,4 +158,14 @@ func onClientReadyUp(p *packet, l *lobby) {
 
 func onStartMatch(p *packet, l *lobby) {
 	l.TryStartMatch()
+}
+
+func onKickPlayer(p *packet, l *lobby) {
+	steamID := l.GetPlayer(p.Src).SteamID
+	err := l.KickPlayerSteamID(steamID)
+	if err != nil {
+		log.Error("Error kicking player ", steamUsername(steamID))
+	} else {
+		log.Info("Kicked player ", steamUsername(steamID))
+	}
 }
