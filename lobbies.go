@@ -49,22 +49,6 @@ func newLobby() *lobby {
 		LastWinner: byte(255),
 	}
 
-	fakeUDP, _ := net.ResolveUDPAddr("udp4", "127.0.0.1:1338")
-
-	daLobby.Players[0] = player{
-		Addr:    fakeUDP,
-		SteamID: 76561197960287930,
-		Stats: playerStats{
-			Wins:  69,
-			Kills: 69,
-		},
-		Status: playerStatus{
-			Ready: true,
-		},
-		UpdateChannel: 2,
-		EventChannel:  3,
-	}
-
 	return daLobby
 }
 
