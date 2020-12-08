@@ -1,6 +1,9 @@
 package main
 
-import "strings"
+import (
+	"strconv"
+	"strings"
+)
 
 func onPlayerUpdate(p *packet, l *lobby) {
 	for i := 0; i < len(l.Players); i++ {
@@ -97,6 +100,18 @@ func onPlayerTalked(p *packet, l *lobby) {
 				break
 			}
 			respMsg = strings.Join(cmd[1:], " ")
+		case "map":
+			if len(cmd) < 2 {
+				respMsg = "Must specify map index!"
+				break
+			}
+			mapIndex, err := strconv.Atoi(cmd[1])
+			if err != nil || mapIndex >= len(l.Maps) || mapIndex < 0 {
+				respMsg = "Invalid map index! 0-" + strconv.Itoa(len(l.Maps)-1)
+				break
+			}
+			l.ChangeMap(mapIndex)
+			respMsg = "Map changed!"
 		case "kick":
 			if len(cmd) < 2 {
 				respMsg = "Must specify player to kick!"
@@ -104,12 +119,28 @@ func onPlayerTalked(p *packet, l *lobby) {
 			}
 			switch cmd[1] {
 			case "1", "yellow", "y":
+				if l.GetPlayerIndex(p.Src) == 0 {
+					respMsg = "Can't kick yourself!"
+					break
+				}
 				l.KickPlayerIndex(0)
 			case "2", "blue", "b":
+				if l.GetPlayerIndex(p.Src) == 1 {
+					respMsg = "Can't kick yourself!"
+					break
+				}
 				l.KickPlayerIndex(1)
 			case "3", "red", "r":
+				if l.GetPlayerIndex(p.Src) == 2 {
+					respMsg = "Can't kick yourself!"
+					break
+				}
 				l.KickPlayerIndex(2)
 			case "4", "green", "g":
+				if l.GetPlayerIndex(p.Src) == 3 {
+					respMsg = "Can't kick yourself!"
+					break
+				}
 				l.KickPlayerIndex(3)
 			default:
 				respMsg = "Unknown player!"
