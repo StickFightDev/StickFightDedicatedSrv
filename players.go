@@ -35,8 +35,8 @@ type playerStatus struct {
 	ControlledLocally bool
 	IsSocket          bool
 	Ready             bool
-	Position          vector3
-	Rotation          vector3
+	Position          networkPosition
+	Weapon            networkWeapon
 	//PlayerObject *gameObject
 
 	//Additional statuses
@@ -44,4 +44,48 @@ type playerStatus struct {
 	Health  float32 //Player health
 	Dead    bool    //Whether or not the player is dead
 	Moved   bool    //If the player has sent a playerUpdate packet
+}
+
+type networkPosition struct {
+	Position, Rotation vector3
+	YValue             int
+	MovementType       movementType
+}
+
+type networkWeapon struct {
+	FightState  fightState
+	Projectiles []projectile
+	WeaponType  weaponType
+}
+
+type movementType byte
+
+type fightState byte
+
+type weaponType byte
+
+type projectile struct {
+	Shoot         vector3
+	ShootPosition vector3
+	SyncIndex     uint16
+}
+
+type damageType byte
+
+const (
+	damageTypePunch damageType = iota
+	damageTypeLocalDamage
+	damageTypeOther
+)
+
+func (dt damageType) String() string {
+	if dt == damageTypePunch {
+		return "Punch"
+	} else if dt == damageTypeLocalDamage {
+		return "LocalDamage"
+	} else if dt == damageTypeOther {
+		return "Other"
+	} else {
+		return "Unknown"
+	}
 }

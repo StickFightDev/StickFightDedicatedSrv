@@ -6,15 +6,58 @@ import (
 )
 
 func onPlayerUpdate(p *packet, l *lobby) {
+	//Position package
+	position := vector3{
+		X: float32(p.ReadI16LENext(1)[0]),
+		Y: float32(p.ReadI16LENext(1)[0]),
+	}
+	rotation := vector3{
+		X: float32(p.ReadByteNext()),
+		Y: float32(p.ReadByteNext()),
+	}
+	yValue := int(p.ReadByteNext())
+	movement := movementType(p.ReadByteNext())
+
+	//Weapon package
+	fight := fightState(p.ReadByteNext())
+	projectileCount := int(p.ReadU16LENext(1)[0])
+	projectiles := make([]projectile, projectileCount)
+	if projectileCount > 0 {
+		for i := 0; i < projectileCount; i++ {
+			projectiles[i].ShootPosition.X = float32(p.ReadI16LENext(1)[0])
+			projectiles[i].ShootPosition.Y = float32(p.ReadI16LENext(1)[0])
+			projectiles[i].Shoot.X = float32(p.ReadByteNext())
+			projectiles[i].Shoot.Y = float32(p.ReadByteNext())
+			projectiles[i].SyncIndex = p.ReadU16LENext(1)[0]
+		}
+	}
+	weapon := weaponType(p.ReadByteNext())
+
+	netPosition := networkPosition{
+		Position:     position,
+		Rotation:     rotation,
+		YValue:       yValue,
+		MovementType: movement,
+	}
+	netWeapon := networkWeapon{
+		FightState:  fight,
+		Projectiles: projectiles,
+		WeaponType:  weapon,
+	}
+
 	for i := 0; i < len(l.Players); i++ {
 		if l.Players[i].Addr == p.Src {
 			if !l.Players[i].Status.Moved {
 				log.Debug("Player ", i, " has moved!")
+				l.Players[i].Status.Moved = true
 			}
-			l.Players[i].Status.Moved = true
+			l.Players[i].Status.Position = netPosition
+			l.Players[i].Status.Weapon = netWeapon
 			break
 		}
 	}
+
+	//log.Debug("New client state for ", p.Src, ": Position(", state.Position.Position, ") Rotation(", state.Position.Rotation, ") YValue:", state.Position.YValue, " Movement:", state.Position.MovementType, " Fight:", state.Weapon.FightState, " Weapon:", state.Weapon.WeaponType, " Projectiles:", state.Weapon.Projectiles)
 
 	l.Broadcast(p, p.Src)
 }

@@ -46,7 +46,6 @@ func newLobby() *lobby {
 		Players:    make([]player, defaultMaxPlayers),
 		Maps:       defaultMaps,
 		MapIndex:   -1,
-		LastWinner: byte(255),
 	}
 
 	return daLobby
@@ -226,7 +225,7 @@ func (l *lobby) UnReadyAllPlayers() {
 func (l *lobby) SpawnPlayers() {
 	for i := 0; i < len(l.Players); i++ {
 		if l.Players[i].Addr != nil && !l.Players[i].Status.Spawned {
-			l.SpawnPlayer(i, l.Players[i].Status.Position, l.Players[i].Status.Rotation)
+			l.SpawnPlayer(i, l.Players[i].Status.Position.Position, l.Players[i].Status.Position.Rotation)
 		}
 	}
 }
@@ -250,8 +249,6 @@ func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector3) {
 	packetClientSpawned.WriteByteNext(flag)
 
 	l.Players[playerIndex].Status.Spawned = true
-	l.Players[playerIndex].Status.Position = position
-	l.Players[playerIndex].Status.Rotation = rotation
 	l.Players[playerIndex].UpdateChannel = playerIndex*2 + 2
 	l.Players[playerIndex].EventChannel = l.Players[playerIndex].UpdateChannel + 1
 
