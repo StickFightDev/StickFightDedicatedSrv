@@ -47,7 +47,7 @@ type playerStatus struct {
 }
 
 type networkPosition struct {
-	Position, Rotation vector3
+	Position, Rotation vector2
 	YValue             int
 	MovementType       movementType
 }

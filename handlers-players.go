@@ -7,11 +7,11 @@ import (
 
 func onPlayerUpdate(p *packet, l *lobby) {
 	//Position package
-	position := vector3{
+	position := vector2{
 		X: float32(p.ReadI16LENext(1)[0]),
 		Y: float32(p.ReadI16LENext(1)[0]),
 	}
-	rotation := vector3{
+	rotation := vector2{
 		X: float32(p.ReadByteNext()),
 		Y: float32(p.ReadByteNext()),
 	}
@@ -57,7 +57,7 @@ func onPlayerUpdate(p *packet, l *lobby) {
 		}
 	}
 
-	//log.Debug("New client state for ", p.Src, ": Position(", state.Position.Position, ") Rotation(", state.Position.Rotation, ") YValue:", state.Position.YValue, " Movement:", state.Position.MovementType, " Fight:", state.Weapon.FightState, " Weapon:", state.Weapon.WeaponType, " Projectiles:", state.Weapon.Projectiles)
+	log.Trace("New client state for ", p.Src, ": Position(", position, ") Rotation(", rotation, ") YValue:", yValue, " Movement:", movement, " Fight:", fight, " Weapon:", weapon, " Projectiles:", projectiles)
 
 	l.Broadcast(p, p.Src)
 }
@@ -71,10 +71,6 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 	}
 	if !l.IsPlayerReady(playerIndex) && l.MapIndex > -1 { //Make sure player is ready if not in lobby map
 		log.Warn("Player ", playerIndex, " took damage despite not being ready! Tossing...")
-		return
-	}
-	if !l.Players[playerIndex].Status.Moved && l.GetPlayersInLobby(-1) > 1 {
-		log.Warn("Player ", playerIndex, " took damage despite having not moved! Tossing...")
 		return
 	}
 

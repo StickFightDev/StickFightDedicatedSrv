@@ -169,7 +169,7 @@ func main() {
 				}
 			}*/
 
-			log.Debug("Handling packet from ", pk.Src, ": ", pk)
+			//log.Debug("Handling packet from ", pk.Src, ": ", pk)
 			go pk.Handle(connLobby) //Handle the packet in a goroutine
 		}
 	}()

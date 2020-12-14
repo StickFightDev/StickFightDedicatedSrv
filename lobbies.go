@@ -53,7 +53,7 @@ func newLobby() *lobby {
 
 func (l *lobby) SendTo(p *packet, dst *net.UDPAddr) {
 	srv.WriteToUDP(p.AsBytes(), dst)
-	log.Debug("Sent to ", dst.String(), ": ", p.String())
+	//log.Debug("Sent to ", dst.String(), ": ", p.String())
 }
 
 func (l *lobby) Broadcast(p *packet, caller *net.UDPAddr) {
@@ -230,7 +230,7 @@ func (l *lobby) SpawnPlayers() {
 	}
 }
 
-func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector3) {
+func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector2) {
 	l.Lock()
 	defer l.Unlock()
 
@@ -243,8 +243,8 @@ func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector3) {
 	packetClientSpawned.Grow(26)
 	packetClientSpawned.WriteByteNext(byte(playerIndex))
 	packetClientSpawned.WriteF32LENext([]float32{
-		position.X, position.Y, position.Z,
-		rotation.X, rotation.Y, rotation.Z,
+		position.X, position.Y, 0,
+		rotation.X, rotation.Y, 0,
 	})
 	packetClientSpawned.WriteByteNext(flag)
 
