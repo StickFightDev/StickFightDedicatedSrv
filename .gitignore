@@ -2,6 +2,7 @@
 *.exe
 *.app
 *.old
+StickFightDedicatedSrv
 
 # Log files
 *.log

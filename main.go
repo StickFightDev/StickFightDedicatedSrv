@@ -169,7 +169,9 @@ func main() {
 				}
 			}*/
 
-			//log.Debug("Handling packet from ", pk.Src, ": ", pk)
+			if pk.Type != packetTypePlayerUpdate {
+				log.Debug("Handling packet from ", pk.Src, ": ", pk)
+			}
 			go pk.Handle(connLobby) //Handle the packet in a goroutine
 		}
 	}()

@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"io/ioutil"
 	"net"
 	"sync"
 )
@@ -41,6 +42,22 @@ func newLobby() *lobby {
 		newMapCustomOnline(2200042304),
 	}
 
+	localMaps, err := ioutil.ReadDir("maps")
+	if err == nil {
+		for _, m := range localMaps {
+			if string(m.Name()[len(m.Name())-4:]) == ".bin" {
+				log.Debug("Loading map: ", m.Name())
+				mapData, err := ioutil.ReadFile("maps/" + m.Name())
+				if err != nil {
+					log.Error("invalid map: ", m.Name())
+					continue
+				}
+				localMap := newMapCustomStream(m.Name(), mapData)
+				defaultMaps = append(defaultMaps, localMap)
+			}
+		}
+	}
+
 	daLobby := &lobby{
 		MaxPlayers: defaultMaxPlayers,
 		Players:    make([]player, defaultMaxPlayers),
@@ -53,7 +70,9 @@ func newLobby() *lobby {
 
 func (l *lobby) SendTo(p *packet, dst *net.UDPAddr) {
 	srv.WriteToUDP(p.AsBytes(), dst)
-	//log.Debug("Sent to ", dst.String(), ": ", p.String())
+	if p.Type != packetTypePlayerUpdate {
+		log.Debug("Sent to ", dst.String(), ": ", p.String())
+	}
 }
 
 func (l *lobby) Broadcast(p *packet, caller *net.UDPAddr) {
@@ -120,16 +139,16 @@ func (l *lobby) TryStartMatch() {
 		}
 		if !pl.Status.Ready {
 			notReady = true
-			l.SendTo(newPacket(packetTypeStartMatch, 1, l.Players[l.GetHostIndex()].SteamID), pl.Addr)
 			break
 		}
 	}
 
 	if notReady {
+		l.Broadcast(newPacket(packetTypeStartMatch, 0, 0), nil)
 		log.Warn("Can't start match until all players are ready!")
 	} else {
 		l.InFight = true
-		l.Broadcast(newPacket(packetTypeStartMatch, 1, 0), nil)
+		l.Broadcast(newPacket(packetTypeStartMatch, 0, 0), nil)
 		log.Info("Started match!")
 	}
 }
@@ -176,10 +195,11 @@ func (l *lobby) ChangeMap(mapIndex int) {
 
 	l.MapIndex = mapIndex
 
+	l.KillAllPlayers()
 	l.UnReadyAllPlayers()
 	l.InFight = false
 
-	packetMapChange := newPacket(packetTypeMapChange, 1, 0)
+	packetMapChange := newPacket(packetTypeMapChange, 0, 0)
 	packetMapChange.Grow(2)
 	packetMapChange.WriteByteNext(l.LastWinner)
 	packetMapChange.WriteByteNext(l.Maps[mapIndex].Type())
@@ -188,8 +208,6 @@ func (l *lobby) ChangeMap(mapIndex int) {
 
 	l.Broadcast(packetMapChange, nil)
 	log.Info("Changed map index to ", mapIndex, ": ", l.Maps[mapIndex])
-
-	l.SpawnPlayers()
 }
 
 func (l *lobby) GetPlayersInLobby(excludePlayerIndex int) int {
@@ -206,11 +224,31 @@ func (l *lobby) GetPlayersInLobby(excludePlayerIndex int) int {
 	return playerCount
 }
 
-func (l *lobby) IsPlayerReady(playerIndex int) bool {
-	if l.Players[playerIndex].Status.Ready {
+func (l *lobby) IsFull() bool {
+	if len(l.Players) >= l.MaxPlayers {
 		return true
 	}
 	return false
+}
+
+func (l *lobby) IsPlayerReady(playerIndex int) bool {
+	return l.Players[playerIndex].Status.Ready
+}
+
+func (l *lobby) KillAllPlayers() {
+	for i := 0; i < len(l.Players); i++ {
+		if l.Players[i].Addr != nil {
+			l.Players[i].Status.Dead = true
+
+			packetPlayerTookDamage := newPacket(packetTypePlayerTookDamage, l.Players[i].EventChannel, 0)
+			packetPlayerTookDamage.Grow(7)
+			packetPlayerTookDamage.WriteByteNext(byte(i))
+			packetPlayerTookDamage.WriteF32LENext([]float32{666.666})
+			packetPlayerTookDamage.WriteByteNext(0x0) //no particles
+			packetPlayerTookDamage.WriteByteNext(0x2) //damage type other
+			l.Broadcast(packetPlayerTookDamage, nil)
+		}
+	}
 }
 
 func (l *lobby) UnReadyAllPlayers() {
@@ -224,8 +262,9 @@ func (l *lobby) UnReadyAllPlayers() {
 
 func (l *lobby) SpawnPlayers() {
 	for i := 0; i < len(l.Players); i++ {
-		if l.Players[i].Addr != nil && !l.Players[i].Status.Spawned {
+		if l.Players[i].Addr != nil {
 			l.SpawnPlayer(i, l.Players[i].Status.Position.Position, l.Players[i].Status.Position.Rotation)
+			//l.SpawnPlayer(i, vector2{0, 0}, l.Players[i].Status.Position.Rotation)
 		}
 	}
 }
@@ -254,11 +293,6 @@ func (l *lobby) SpawnPlayer(playerIndex int, position, rotation vector2) {
 
 	log.Info("Spawned player ", playerIndex, " at position ", position, " with rotation ", rotation, " using flag ", flag)
 	l.Broadcast(packetClientSpawned, nil) //Tell all players that the new client has spawned
-
-	if l.MapIndex > -1 {
-		log.Info("Telling player ", playerIndex, " to start match")
-		l.SendTo(newPacket(packetTypeStartMatch, 1, 0), l.Players[playerIndex].Addr)
-	}
 }
 
 func (l *lobby) AddPlayer(addr *net.UDPAddr) (playerIndex int, err error) {
@@ -278,6 +312,9 @@ func (l *lobby) AddPlayer(addr *net.UDPAddr) (playerIndex int, err error) {
 
 	l.Players[playerIndex] = player{
 		Addr: addr,
+		Status: playerStatus{
+			Ready: true,
+		},
 	}
 
 	return playerIndex, nil
@@ -326,6 +363,10 @@ func (l *lobby) KickPlayerIndex(playerIndex int) error {
 }
 
 func (l *lobby) KickPlayerSteamID(steamID uint64) error {
+	if l == nil {
+		return nil
+	}
+
 	playersTried := 0
 	for i := 0; i < len(l.Players); i++ {
 		pl := l.Players[i]

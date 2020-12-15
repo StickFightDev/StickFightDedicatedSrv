@@ -57,7 +57,7 @@ func onPlayerUpdate(p *packet, l *lobby) {
 		}
 	}
 
-	log.Trace("New client state for ", p.Src, ": Position(", position, ") Rotation(", rotation, ") YValue:", yValue, " Movement:", movement, " Fight:", fight, " Weapon:", weapon, " Projectiles:", projectiles)
+	//log.Trace("New client state for ", p.Src, ": Position(", position, ") Rotation(", rotation, ") YValue:", yValue, " Movement:", movement, " Fight:", fight, " Weapon:", weapon, " Projectiles:", projectiles)
 
 	l.Broadcast(p, p.Src)
 }
@@ -66,12 +66,12 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 	playerIndex := l.GetPlayerIndex(p.Src)
 
 	if l.Players[playerIndex].Status.Dead {
-		log.Warn("Player ", playerIndex, " took damage despite being dead! Tossing...")
-		return
+		log.Warn("Player ", playerIndex, " took damage despite being dead! Should toss...")
+		//return
 	}
 	if !l.IsPlayerReady(playerIndex) && l.MapIndex > -1 { //Make sure player is ready if not in lobby map
-		log.Warn("Player ", playerIndex, " took damage despite not being ready! Tossing...")
-		return
+		log.Warn("Player ", playerIndex, " took damage despite not being ready! Should toss...")
+		//return
 	}
 
 	attackerIndex := int(p.ReadByteNext())
@@ -113,18 +113,23 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 
 		l.Players[attackerIndex].Stats.Kills++
 
-		if l.GetPlayersInLobby(playerIndex) > 0 {
+		//if l.GetPlayersInLobby(playerIndex) > 0 {
 			l.CheckWinner(attackerIndex)
-		}
+		//}
 	} else {
 		log.Info("Player ", playerIndex, " took ", damage, " damage from player ", attackerIndex, " of type ", typeDamage)
 		l.Players[playerIndex].Status.Health -= damage
+		if l.Players[playerIndex].Status.Health <= 0 {
+			l.CheckWinner(attackerIndex)
+		}
 	}
 
 	l.Broadcast(p, p.Src)
 }
 
 func onPlayerTalked(p *packet, l *lobby) {
+	playerIndex := l.GetPlayerIndex(p.Src)
+	p.Channel = l.Players[playerIndex].EventChannel
 	l.Broadcast(p, p.Src)
 
 	msg := string(p.Bytes())
@@ -145,12 +150,18 @@ func onPlayerTalked(p *packet, l *lobby) {
 				break
 			}
 			mapIndex, err := strconv.Atoi(cmd[1])
-			if err != nil || mapIndex >= len(l.Maps) || mapIndex < 0 {
-				respMsg = "Invalid map index! 0-" + strconv.Itoa(len(l.Maps)-1)
+			if err != nil || mapIndex >= len(l.Maps) || mapIndex < -1 {
+				respMsg = "Invalid map index! 0 to " + strconv.Itoa(len(l.Maps)-1) + " or -1 for random"
 				break
 			}
 			l.ChangeMap(mapIndex)
-			respMsg = "Map changed!"
+			respMsg = "Map changed to " + l.Maps[l.MapIndex].String() + "!"
+		case "start", "startmatch":
+			l.TryStartMatch()
+			respMsg = "Started match!"
+		case "spawnall":
+			l.SpawnPlayers()
+			respMsg = "Spawned players!"
 		case "kick":
 			if len(cmd) < 2 {
 				respMsg = "Must specify player to kick!"
@@ -191,8 +202,9 @@ func onPlayerTalked(p *packet, l *lobby) {
 		}
 
 		resp := newPacket(packetTypePlayerTalked, l.Players[l.GetHostIndex()].EventChannel, l.Players[l.GetHostIndex()].SteamID)
-		resp.Grow(int64(len(respMsg)))
-		resp.WriteBytesNext([]byte(respMsg))
+		respBytes := []byte(respMsg)
+		resp.Grow(int64(len(respBytes)))
+		resp.WriteBytesNext(respBytes)
 		l.SendTo(resp, p.Src)
 	}
 }

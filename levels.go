@@ -8,7 +8,7 @@ import (
 )
 
 type level struct {
-	mapType byte //0 = Landfall, 1 = Local, 2 = CustomOnline
+	mapType byte //0 = Landfall, 1 = Local, 2 = Workshop (CustomOnline), 3 = Streamed (CustomStream)
 	data    []byte
 
 	sceneIndex      int32
@@ -38,6 +38,13 @@ func newMapCustomOnline(steamWorkshopID uint64) *level {
 	return &level{
 		mapType:         2,
 		steamWorkshopID: steamWorkshopID,
+	}
+}
+func newMapCustomStream(path string, data []byte) *level {
+	return &level{
+		mapType: 3,
+		local:   path,
+		data:    data,
 	}
 }
 
@@ -84,6 +91,8 @@ func (m *level) String() string {
 		return string(m.Data()) + "/Level.bin"
 	case 2:
 		return fmt.Sprintf("Steam Workshop map: %v", binary.LittleEndian.Uint64(m.Data()))
+	case 3:
+		return "Streamed map: " + m.local
 	}
 	return fmt.Sprintf("%d: %v", int(m.Type()), m.Data())
 }

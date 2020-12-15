@@ -15,9 +15,13 @@ func onClientRequestingAccepting(p *packet, l *lobby) {
 
 func onClientRequestingIndex(p *packet, l *lobby) {
 	playerIndex := 0
+	steamID := p.ReadU64LENext(1)[0]
 
 	if l == nil {
 		for _, testLobby := range lobbies {
+			//Kick this player if they're still connected from a previous session
+			_ = l.KickPlayerSteamID(steamID)
+
 			newPlayerIndex, err := testLobby.AddPlayer(p.Src)
 			if err == nil {
 				log.Debug("added client ", p.Src, " to old lobby as player ", newPlayerIndex)
@@ -41,13 +45,6 @@ func onClientRequestingIndex(p *packet, l *lobby) {
 			lobbies = append(lobbies, l)
 			log.Debug("added client ", p.Src, " to newly created lobby as host")
 		}
-	}
-
-	steamID := p.ReadU64LENext(1)[0]
-	_ = l.KickPlayerSteamID(steamID) //Kick this player if they're still connected from a previous session
-
-	if steamID == 0 { //Safety net for running additional instances of the game, disable for production servers
-		steamID = 1337 + uint64(playerIndex)
 	}
 
 	localPlayerCount := int(p.ReadByteNext())
@@ -120,8 +117,8 @@ func onClientRequestingToSpawn(p *packet, l *lobby) {
 	playerIndex := int(p.ReadByteNext()) //Read the player index
 
 	if realPlayerIndex := l.GetPlayerIndex(p.Src); realPlayerIndex != playerIndex {
-		log.Error("Player ", realPlayerIndex, " is requesting for player ", playerIndex, " to spawn")
-		return
+		log.Warn("Player ", realPlayerIndex, " is requesting for player ", playerIndex, " to spawn")
+		//return
 	}
 
 	position := vector2{
@@ -153,7 +150,11 @@ func onClientReadyUp(p *packet, l *lobby) {
 
 	l.Players[l.GetPlayerIndex(p.Src)].Status.Ready = true
 
-	l.TryStartMatch()
+	if l.InFight {
+		l.SendTo(newPacket(packetTypeStartMatch, 0, 0), p.Src)
+	} else {
+		l.TryStartMatch()
+	}
 }
 
 func onStartMatch(p *packet, l *lobby) {
