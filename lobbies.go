@@ -40,6 +40,9 @@ func newLobby() *lobby {
 		newMapLandfall(3),
 		newMapLandfall(4),
 		newMapCustomOnline(2200042304),
+		newMapLandfall(11), //Desert7
+		newMapLandfall(12), //Desert8
+		newMapLandfall(17), //Factory5
 	}
 
 	localMaps, err := ioutil.ReadDir("maps")
@@ -185,17 +188,22 @@ func (l *lobby) GetMap() *level {
 	return l.Maps[l.MapIndex]
 }
 
-func (l *lobby) ChangeMap(mapIndex int) {
-	//l.Lock()
-	//defer l.Unlock()
+func (l *lobby) TempMap(sceneIndex int) *level {
+	lfMap := newMapLandfall(int32(sceneIndex))
+	l.Maps = append(l.Maps, lfMap)
+	mapIndex := len(l.Maps)-1
+	l.ChangeMap(mapIndex)
+	l.Maps = l.Maps[0:mapIndex]
+	return lfMap
+}
 
+func (l *lobby) ChangeMap(mapIndex int) {
 	if mapIndex < 0 || mapIndex >= len(l.Maps) {
 		mapIndex = randomizer.Intn(len(l.Maps) - 1)
 	}
 
 	l.MapIndex = mapIndex
 
-	l.KillAllPlayers()
 	l.UnReadyAllPlayers()
 	l.InFight = false
 

@@ -149,13 +149,56 @@ func onPlayerTalked(p *packet, l *lobby) {
 				respMsg = "Must specify map index!"
 				break
 			}
-			mapIndex, err := strconv.Atoi(cmd[1])
-			if err != nil || mapIndex >= len(l.Maps) || mapIndex < -1 {
-				respMsg = "Invalid map index! 0 to " + strconv.Itoa(len(l.Maps)-1) + " or -1 for random"
-				break
+			switch cmd[1] {
+			case "add":
+				if len(cmd) < 4 {
+					respMsg = "/map add {landfall/steam} mapID"
+					break
+				}
+				switch cmd[2] {
+				case "landfall", "Landfall", "lf", "LF":
+					mapIndex, err := strconv.Atoi(cmd[3])
+					if err != nil || mapIndex < 0 {
+						respMsg = "Invalid map index!"
+						break
+					}
+					lfMap := newMapLandfall(int32(mapIndex))
+					l.Maps = append(l.Maps, lfMap)
+					respMsg = "Added map: " + lfMap.String()
+				case "steam", "Steam", "workshop", "Workshop", "sw", "SW":
+					workshopID, err := strconv.ParseUint(cmd[3], 10, 64)
+					if err != nil {
+						respMsg = "Invalid workshop ID!"
+						break
+					}
+					steamMap := newMapCustomOnline(workshopID)
+					l.Maps = append(l.Maps, steamMap)
+					respMsg = "Added map: " + steamMap.String()
+				default:
+					respMsg = "Unknown map type: " + cmd[2]
+					break
+				}
+			case "scene":
+				if len(cmd) < 3 {
+					respMsg = "Must specify sceneIndex!"
+					break
+				}
+				sceneIndex, err := strconv.Atoi(cmd[2])
+				if err != nil || sceneIndex < 0 {
+					respMsg = "Invalid scene index!"
+					break
+				}
+				tempMap := l.TempMap(sceneIndex)
+				respMsg = "New map: " + tempMap.String() + "!"
+			default:
+				mapIndex, err := strconv.Atoi(cmd[1])
+				if err != nil || mapIndex >= len(l.Maps) || mapIndex < -1 {
+					respMsg = "Invalid map index! 0 to " + strconv.Itoa(len(l.Maps)-1) + " or -1 for random"
+					break
+				}
+				l.ChangeMap(mapIndex)
+				respMsg = "New map: " + l.Maps[l.MapIndex].String() + "!"
 			}
-			l.ChangeMap(mapIndex)
-			respMsg = "Map changed to " + l.Maps[l.MapIndex].String() + "!"
 		case "start", "startmatch":
 			l.TryStartMatch()
 			respMsg = "Started match!"
