@@ -1,6 +1,7 @@
 package main
 
 import (
+	"os"
 	"strconv"
 	"strings"
 )
@@ -66,17 +67,17 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 	playerIndex := l.GetPlayerIndex(p.Src)
 
 	if l.Players[playerIndex].Status.Dead {
-		log.Warn("Player ", playerIndex, " took damage despite being dead! Should toss...")
-		//return
+		log.Warn("Player ", playerIndex, " took damage despite being dead!")
+		return
 	}
 	if !l.IsPlayerReady(playerIndex) && l.MapIndex > -1 { //Make sure player is ready if not in lobby map
-		log.Warn("Player ", playerIndex, " took damage despite not being ready! Should toss...")
+		log.Warn("Player ", playerIndex, " took damage despite not being ready!")
 		//return
 	}
 
 	attackerIndex := int(p.ReadByteNext())
 	if attackerIndex == playerIndex {
-		log.Warn("Player ", playerIndex, " tried damaging themselves, just a spawn glitch! Should toss...")
+		log.Warn("Player ", playerIndex, " tried damaging themselves, just a spawn glitch!")
 		//return
 	}
 
@@ -118,21 +119,25 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 		//}
 	} else {
 		log.Info("Player ", playerIndex, " took ", damage, " damage from player ", attackerIndex, " of type ", typeDamage)
-		l.Players[playerIndex].Status.Health -= damage
-		if l.Players[playerIndex].Status.Health <= 0 {
-			l.CheckWinner(attackerIndex)
-		}
+		//l.Players[playerIndex].Status.Health -= damage
+		//if l.Players[playerIndex].Status.Health <= 0 {
+		//	l.Players[playerIndex].Status.Dead = true
+		//	l.Players[playerIndex].Stats.Deaths++
+		//	l.CheckWinner(attackerIndex)
+		//}
 	}
 
 	l.Broadcast(p, p.Src)
 }
 
 func onPlayerTalked(p *packet, l *lobby) {
+	msg := string(p.Bytes())
+
 	playerIndex := l.GetPlayerIndex(p.Src)
 	p.Channel = l.Players[playerIndex].EventChannel
 	l.Broadcast(p, p.Src)
+	log.Info(steamUsername(l.Players[playerIndex].SteamID), ": ", msg)
 
-	msg := string(p.Bytes())
 	if l.GetHostIndex() == l.GetPlayerIndex(p.Src) && string(msg[0]) == "/" {
 		respMsg := ""
 
@@ -144,6 +149,24 @@ func onPlayerTalked(p *packet, l *lobby) {
 				break
 			}
 			respMsg = strings.Join(cmd[1:], " ")
+		case "stop":
+			os.Exit(0)
+		case "newlobby":
+			l.KickPlayerIndex(playerIndex)
+			nl := newLobby()
+			_, err := nl.AddPlayer(p.Src)
+			if err == nil {
+				l.KickPlayerIndex(playerIndex)
+				packetClientRequestingIndex := newPacket(packetTypeClientRequestingIndex, 0, 0)
+				packetClientRequestingIndex.Grow(10)
+				packetClientRequestingIndex.WriteU64LENext([]uint64{p.SteamID})
+				packetClientRequestingIndex.WriteBytesNext([]byte{1, 25})
+				packetClientRequestingIndex.Src = p.Src
+				go packetClientRequestingIndex.Handle(nl)
+				log.Info("Moved client ", p.Src, " to new lobby as host")
+				return
+			}
+			respMsg = "Unable to add you to a new lobby!"
 		case "map":
 			if len(cmd) < 2 {
 				respMsg = "Must specify map index!"
@@ -196,7 +219,7 @@ func onPlayerTalked(p *packet, l *lobby) {
 					respMsg = "Invalid map index! 0 to " + strconv.Itoa(len(l.Maps)-1) + " or -1 for random"
 					break
 				}
-				l.ChangeMap(mapIndex)
+				l.ChangeMap(mapIndex, 255)
 				respMsg = "New map: " + l.Maps[l.MapIndex].String() + "!"
 			}
 		case "start", "startmatch":
@@ -264,3 +287,7 @@ func onPlayerFallOut(p *packet, l *lobby) {
 
 	l.Broadcast(p, p.Src)
 }
+
+func onPlayerForceAdded(p *packet, l *lobby) {l.Broadcast(p, p.Src)}
+func onPlayerForceAddedAndBlock(p *packet, l *lobby) {l.Broadcast(p, p.Src)}
+func onPlayerLavaForceAdded(p *packet, l *lobby) {l.Broadcast(p, p.Src)}

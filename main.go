@@ -75,7 +75,12 @@ func main() {
 	addHandler(packetTypePlayerUpdate, onPlayerUpdate)
 	addHandler(packetTypePlayerTookDamage, onPlayerTookDamage)
 	addHandler(packetTypePlayerTalked, onPlayerTalked)
+	addHandler(packetTypePlayerForceAdded, onPlayerForceAdded)
+	addHandler(packetTypePlayerForceAddedAndBlock, onPlayerForceAddedAndBlock)
+	addHandler(packetTypePlayerLavaForceAdded, onPlayerLavaForceAdded)
 	addHandler(packetTypePlayerFallOut, onPlayerFallOut)
+	addHandler(packetTypeClientRequestingWeaponPickUp, onClientRequestingWeaponPickUp)
+	addHandler(packetTypeClientRequestingWeaponDrop, onClientRequestingWeaponDrop)
 	addHandler(packetTypeStartMatch, onStartMatch)
 	addHandler(packetTypeKickPlayer, onKickPlayer)
 
@@ -137,14 +142,23 @@ func main() {
 			//Set the source address of the packet
 			pk.Src = addr
 
-			if pk.Timestamp < lastTimestamp { //This packet is older than the most recent packet, so it is outdated and must be ignored
-				log.Warn("outdated packet from ", addr, ", last timestamp was ", lastTimestamp, " and packet timestamp is ", pk.Timestamp)
-				continue //Goodbye packet, maybe you'll be faster next time :c
+			switch pk.Type {
+			case packetTypePlayerUpdate:
+			case packetTypePlayerTalked:
+			case packetTypePlayerForceAdded:
+			case packetTypePlayerForceAddedAndBlock:
+			case packetTypePlayerLavaForceAdded:
+			case packetTypePlayerFallOut:
+			case packetTypePlayerWonWithRicochet:
+			default:
+				if pk.Timestamp < lastTimestamp { //This packet is older than the most recent packet, so it is outdated and must be ignored
+					log.Warn("outdated packet from ", addr, ", last timestamp was ", lastTimestamp, " and packet timestamp is ", pk.Timestamp)
+					continue //Goodbye packet, maybe you'll be faster next time :c
+				}
+
+				//Set the last timestamp
+				lastTimestamp = pk.Timestamp
 			}
-			//Set the last timestamp to system time
-			//lastTimestamp = uint32(time.Now().Unix())
-			//Set the last timestamp
-			lastTimestamp = pk.Timestamp
 
 			//Packet firewall
 			/*switch pk.Type {

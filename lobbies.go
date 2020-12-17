@@ -25,7 +25,6 @@ type lobby struct {
 	//Session tracker
 	MapIndex   int  //The current map as indexed from lobby.Maps, -1 for lobby
 	InFight    bool //If the match is in progress
-	LastWinner byte //The player index of the last winner
 
 	Players []player
 	Maps    []*level
@@ -158,22 +157,27 @@ func (l *lobby) TryStartMatch() {
 
 func (l *lobby) CheckWinner(playerIndex int) {
 	someoneElseSurvived := false
+	playerCount := 1
 	for i, pl := range l.Players {
 		if i == playerIndex {
 			continue
 		}
 		if pl.Addr != nil {
+			playerCount++
 			if !pl.Status.Dead {
 				someoneElseSurvived = true
-				break
 			}
 		}
 	}
 
 	if !someoneElseSurvived {
-		log.Info("Player ", playerIndex, " is the winner")
-		l.LastWinner = byte(playerIndex)
-		l.ChangeMap(-1)
+		if playerCount <= 1 {
+			log.Info("Player ", playerIndex, " died all alone!")
+			l.ChangeMap(-1, 255)
+		} else {
+			log.Info("Player ", playerIndex, " is the winner!")
+			l.ChangeMap(-1, playerIndex)
+		}
 	}
 }
 
@@ -192,12 +196,12 @@ func (l *lobby) TempMap(sceneIndex int) *level {
 	lfMap := newMapLandfall(int32(sceneIndex))
 	l.Maps = append(l.Maps, lfMap)
 	mapIndex := len(l.Maps)-1
-	l.ChangeMap(mapIndex)
+	l.ChangeMap(mapIndex, 255)
 	l.Maps = l.Maps[0:mapIndex]
 	return lfMap
 }
 
-func (l *lobby) ChangeMap(mapIndex int) {
+func (l *lobby) ChangeMap(mapIndex, winnerPlayerIndex int) {
 	if mapIndex < 0 || mapIndex >= len(l.Maps) {
 		mapIndex = randomizer.Intn(len(l.Maps) - 1)
 	}
@@ -209,7 +213,7 @@ func (l *lobby) ChangeMap(mapIndex int) {
 
 	packetMapChange := newPacket(packetTypeMapChange, 0, 0)
 	packetMapChange.Grow(2)
-	packetMapChange.WriteByteNext(l.LastWinner)
+	packetMapChange.WriteByteNext(byte(winnerPlayerIndex))
 	packetMapChange.WriteByteNext(l.Maps[mapIndex].Type())
 	packetMapChange.Grow(int64(l.Maps[mapIndex].Size()))
 	packetMapChange.WriteBytesNext(l.Maps[mapIndex].Data())
@@ -321,7 +325,7 @@ func (l *lobby) AddPlayer(addr *net.UDPAddr) (playerIndex int, err error) {
 	l.Players[playerIndex] = player{
 		Addr: addr,
 		Status: playerStatus{
-			Ready: true,
+			Health: l.GetMaxHealth(),
 		},
 	}
 

@@ -38,20 +38,30 @@ func onClientRequestingIndex(p *packet, l *lobby) {
 				log.Error("unable to add client ", p.Src, " to newly created lobby: ", err)
 				packetClientInit := newPacket(packetTypeClientInit, 0, 0)
 				packetClientInit.Grow(1)
-				packetClientInit.WriteByteNext(0) //Set to != 1 to refuse connection
 				l.SendTo(packetClientInit, p.Src)
 				return
 			}
 			lobbies = append(lobbies, l)
 			log.Debug("added client ", p.Src, " to newly created lobby as host")
 		}
+	} else {
+		playerIndex = l.GetPlayerIndex(p.Src)
 	}
 
 	localPlayerCount := int(p.ReadByteNext())
 	if localPlayerCount > 1 { //We don't support multiple local players yet!
+		log.Error("unable to add client ", p.Src, " to lobby: only 1 local player per client")
 		packetClientInit := newPacket(packetTypeClientInit, 0, 0)
 		packetClientInit.Grow(1)
-		packetClientInit.WriteByteNext(0) //Set to != 1 to refuse connection
+		l.SendTo(packetClientInit, p.Src)
+		return
+	}
+
+	protocolVersion := int(p.ReadByteNext())
+	if protocolVersion != 25 { //We don't support anything other than Stick Fight v25 right now!
+		log.Error("unable to add client ", p.Src, " to lobby: version ", protocolVersion, " is not supported")
+		packetClientInit := newPacket(packetTypeClientInit, 0, 0)
+		packetClientInit.Grow(1)
 		l.SendTo(packetClientInit, p.Src)
 		return
 	}
@@ -169,4 +179,18 @@ func onKickPlayer(p *packet, l *lobby) {
 	} else {
 		log.Info("Kicked player ", steamUsername(steamID))
 	}
+}
+
+func onClientRequestingWeaponDrop(p *packet, l *lobby) {
+	//TODO: Generate values correctly
+	nextWeaponSpawnID         := uint16(0) //l.GetNextWeaponSpawnID(beginFromEnd = false)
+	nextSyncableObjectSpawnID := uint16(0) //l.GetNextSyncableObjectSpawnID(beginFromEnd = false)
+
+	p.Type = packetTypeWeaponDropped
+	p.WriteU16LENext([]uint16{nextWeaponSpawnID, nextSyncableObjectSpawnID})
+	l.Broadcast(p, nil)
+}
+func onClientRequestingWeaponPickUp(p *packet, l *lobby) {
+	p.Type = packetTypeWeaponWasPickedUp
+	l.Broadcast(p, nil)
 }
