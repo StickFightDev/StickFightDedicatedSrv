@@ -5,7 +5,6 @@ import (
 	"net"
 	"os"
 	"os/signal"
-	"sync"
 	"syscall"
 	"time"
 
@@ -18,47 +17,14 @@ var (
 	maxBufferSize = 8192
 	srv           *net.UDPConn
 	randomizer    *rand.Rand
-	connState     map[string]int //map[UDP address] state (waiting on accept, waiting on index, ready for all)
-	addrQueue     addressQueue
 )
 
 const (
 	noSteamID = uint64(0)
 )
 
-type addressQueue struct {
-	sync.Mutex
-
-	addresses map[string]bool //map[UDP address] packet is processing
-}
-
-func (aq *addressQueue) make() {
-	if aq.addresses == nil {
-		aq.addresses = make(map[string]bool)
-	}
-}
-func (aq *addressQueue) queue(addr *net.UDPAddr) {
-	aq.Lock()
-	defer aq.Unlock()
-	aq.make()
-	aq.addresses[addr.String()] = true
-}
-func (aq *addressQueue) waiting(addr *net.UDPAddr) bool {
-	aq.Lock()
-	defer aq.Unlock()
-	aq.make()
-	return aq.addresses[addr.String()]
-}
-func (aq *addressQueue) done(addr *net.UDPAddr) {
-	aq.Lock()
-	defer aq.Unlock()
-	aq.make()
-	aq.addresses[addr.String()] = false
-}
-
 func main() {
 	randomizer = rand.New(rand.NewSource(time.Now().UnixNano()))
-	connState = make(map[string]int)
 
 	s, err := net.ResolveUDPAddr("udp4", address)
 	if err != nil {
@@ -81,6 +47,7 @@ func main() {
 	addHandler(packetTypePlayerFallOut, onPlayerFallOut)
 	addHandler(packetTypeClientRequestingWeaponPickUp, onClientRequestingWeaponPickUp)
 	addHandler(packetTypeClientRequestingWeaponDrop, onClientRequestingWeaponDrop)
+	addHandler(packetTypeClientRequestingWeaponThrow, onClientRequestingWeaponThrow)
 	addHandler(packetTypeStartMatch, onStartMatch)
 	addHandler(packetTypeKickPlayer, onKickPlayer)
 
@@ -109,17 +76,6 @@ func main() {
 				continue
 			}
 
-			/*//Wait until it's your turn again!
-			if addrQueue.waiting(addr) {
-				for {
-					if !addrQueue.waiting(addr) {
-						break
-					}
-				}
-			}
-			//Mark this address as processing a packet
-			addrQueue.queue(addr)*/
-
 			//Determine if this UDP socket is part of a lobby already
 			var connLobby *lobby
 			for _, lobby := range lobbies {
@@ -142,15 +98,31 @@ func main() {
 			//Set the source address of the packet
 			pk.Src = addr
 
+			thread := true
+			checkTime := true
+			logHandle := true
 			switch pk.Type {
 			case packetTypePlayerUpdate:
+				checkTime = false
+				logHandle = false
 			case packetTypePlayerTalked:
+				checkTime = false
 			case packetTypePlayerForceAdded:
+				checkTime = false
 			case packetTypePlayerForceAddedAndBlock:
+				checkTime = false
 			case packetTypePlayerLavaForceAdded:
+				checkTime = false
 			case packetTypePlayerFallOut:
+				thread = false
+				checkTime = false
 			case packetTypePlayerWonWithRicochet:
-			default:
+				checkTime = false
+			case packetTypePlayerTookDamage:
+				thread = false
+			}
+
+			if checkTime {
 				if pk.Timestamp < lastTimestamp { //This packet is older than the most recent packet, so it is outdated and must be ignored
 					log.Warn("outdated packet from ", addr, ", last timestamp was ", lastTimestamp, " and packet timestamp is ", pk.Timestamp)
 					continue //Goodbye packet, maybe you'll be faster next time :c
@@ -160,33 +132,15 @@ func main() {
 				lastTimestamp = pk.Timestamp
 			}
 
-			//Packet firewall
-			/*switch pk.Type {
-			case packetTypePing, packetTypePingResponse:
-				break
-			case packetTypeClientRequestingAccepting:
-				if state, ok := connState[addr.String()]; ok && state >= 1 {
-					//log.Warn("ignoring multiple client requesting accepting packets from queued client ", addr.String())
-					//continue
-				}
-				connState[addr.String()] = 1
-			case packetTypeClientRequestingIndex:
-				if state, ok := connState[addr.String()]; ok && state >= 2 {
-					log.Warn("ignoring multiple client requesting index packets from queued client ", addr.String())
-					continue
-				}
-				connState[addr.String()] = 2
-			default:
-				if connState[addr.String()] < 3 {
-					log.Warn("packet type ", getPacketType(pk.Type), " not allowed, client ", addr.String(), " is still waiting to be queued")
-					continue
-				}
-			}*/
-
-			if pk.Type != packetTypePlayerUpdate {
+			if logHandle {
 				log.Debug("Handling packet from ", pk.Src, ": ", pk)
 			}
-			go pk.Handle(connLobby) //Handle the packet in a goroutine
+
+			if thread {
+				go pk.Handle(connLobby)
+			} else {
+				pk.Handle(connLobby)
+			}
 		}
 	}()
 
@@ -196,4 +150,7 @@ func main() {
 	<-sc
 
 	log.Trace("SIGINT received!")
+
+	log.Info("Shutting down the server...")
+	srv.Close()
 }

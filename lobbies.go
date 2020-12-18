@@ -23,8 +23,11 @@ type lobby struct {
 	Private         bool
 
 	//Session tracker
-	MapIndex   int  //The current map as indexed from lobby.Maps, -1 for lobby
-	InFight    bool //If the match is in progress
+	MapIndex                      int  //The current map as indexed from lobby.Maps, -1 for lobby
+	InFight                       bool //If the match is in progress
+	CompletedLevelsSinceLastStats int  //The amount of matches played so far since the last time the stats map was used
+	SpawnedWeapons                map[uint16]*weaponPickUp
+	SpawnedObjects                map[uint16]*syncableObject
 
 	Players []player
 	Maps    []*level
@@ -61,10 +64,12 @@ func newLobby() *lobby {
 	}
 
 	daLobby := &lobby{
-		MaxPlayers: defaultMaxPlayers,
-		Players:    make([]player, defaultMaxPlayers),
-		Maps:       defaultMaps,
-		MapIndex:   -1,
+		MaxPlayers:     defaultMaxPlayers,
+		Players:        make([]player, defaultMaxPlayers),
+		Maps:           defaultMaps,
+		MapIndex:       -1,
+		SpawnedWeapons: make(map[uint16]*weaponPickUp),
+		SpawnedObjects: make(map[uint16]*syncableObject),
 	}
 
 	return daLobby
@@ -192,17 +197,25 @@ func (l *lobby) GetMap() *level {
 	return l.Maps[l.MapIndex]
 }
 
-func (l *lobby) TempMap(sceneIndex int) *level {
+func (l *lobby) TempMap(sceneIndex int, winnerPlayerIndex int) *level {
 	lfMap := newMapLandfall(int32(sceneIndex))
 	l.Maps = append(l.Maps, lfMap)
-	mapIndex := len(l.Maps)-1
-	l.ChangeMap(mapIndex, 255)
+	mapIndex := len(l.Maps) - 1
+	l.ChangeMap(mapIndex, winnerPlayerIndex)
 	l.Maps = l.Maps[0:mapIndex]
 	return lfMap
 }
 
 func (l *lobby) ChangeMap(mapIndex, winnerPlayerIndex int) {
+	l.CompletedLevelsSinceLastStats++
+
 	if mapIndex < 0 || mapIndex >= len(l.Maps) {
+		if l.CompletedLevelsSinceLastStats == 30 {
+			l.CompletedLevelsSinceLastStats = 0
+			l.TempMap(102, winnerPlayerIndex)
+			return
+		}
+
 		mapIndex = randomizer.Intn(len(l.Maps) - 1)
 	}
 
@@ -350,6 +363,15 @@ func (l *lobby) GetPlayerIndex(addr *net.UDPAddr) int {
 	return -1
 }
 
+func (l *lobby) GetPlayerSteamID(steamID uint64) *player {
+	for _, pl := range l.Players {
+		if pl.SteamID == steamID {
+			return &pl
+		}
+	}
+	return nil
+}
+
 func (l *lobby) GetHostIndex() int {
 	for i := 0; i < len(l.Players); i++ {
 		if l.Players[i].Addr != nil {
@@ -401,4 +423,65 @@ func (l *lobby) SetPlayerSteamID(addr *net.UDPAddr, steamID uint64) {
 			l.Players[i].SteamID = steamID
 		}
 	}
+}
+
+func (l *lobby) GetNextWeaponSpawnID(beginFromEnd bool) uint16 {
+	weaponSpawnID := uint16(65534)
+	if beginFromEnd {
+		weaponSpawnID = uint16(len(l.SpawnedWeapons))
+	}
+
+	for {
+		if _, ok := l.SpawnedWeapons[weaponSpawnID]; !ok {
+			break
+		}
+
+		if beginFromEnd {
+			weaponSpawnID--
+		} else {
+			weaponSpawnID++
+		}
+	}
+
+	l.SpawnedWeapons[weaponSpawnID] = &weaponPickUp{}
+	return weaponSpawnID
+}
+
+func (l *lobby) GetNextSyncableObjectSpawnID(beginFromEnd bool) uint16 {
+	objectSpawnID := uint16(65534)
+	if beginFromEnd {
+		objectSpawnID = uint16(len(l.SpawnedObjects))
+	}
+
+	for {
+		if _, ok := l.SpawnedObjects[objectSpawnID]; !ok {
+			break
+		}
+
+		if beginFromEnd {
+			objectSpawnID--
+		} else {
+			objectSpawnID++
+		}
+	}
+
+	l.SpawnedObjects[objectSpawnID] = &syncableObject{}
+	return objectSpawnID
+}
+
+func (l *lobby) SpawnWeapon(weaponID int, spawnPoint vector3) {
+	nextWeaponSpawnID := l.GetNextWeaponSpawnID(false)
+	nextSyncableObjectSpawnID := l.GetNextSyncableObjectSpawnID(false)
+
+	packetWeaponSpawned := newPacket(packetTypeWeaponSpawned, 0, 0)
+	packetWeaponSpawned.Grow(8)
+	packetWeaponSpawned.WriteByteNext(byte(weaponID))
+	packetWeaponSpawned.WriteBytesNext([]byte{byte(spawnPoint.Y), byte(spawnPoint.Z)})
+	packetWeaponSpawned.WriteU16LENext([]uint16{nextWeaponSpawnID, nextSyncableObjectSpawnID})
+	if l.MapIndex > -1 && len(l.Maps) > l.MapIndex {
+		if currentMap := l.Maps[l.MapIndex]; currentMap.sceneIndex >= 104 && currentMap.sceneIndex <= 124 {
+			packetWeaponSpawned.WriteByteNext(1)
+		}
+	}
+	l.Broadcast(packetWeaponSpawned, nil)
 }

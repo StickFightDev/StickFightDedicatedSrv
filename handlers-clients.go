@@ -1,11 +1,25 @@
 package main
 
 func onPing(p *packet, l *lobby) {
-	if p.ByteCapacity() != 0 {
-		l.SendTo(newPacket(packetTypePingResponse, 0, p.SteamID), p.Src)
+	//When receiving a packet, p.SteamID is the target user to receive this packet
+	if p.SteamID != 0 {
+		sourcePlayer := l.GetPlayer(p.Src)
+		targetPlayer := l.GetPlayerSteamID(p.SteamID)
+		if sourcePlayer != nil && targetPlayer != nil {
+			p.SteamID = sourcePlayer.SteamID
+			l.SendTo(p, targetPlayer.Addr)
+		}
 	}
 }
 func onPingResponse(p *packet, l *lobby) {
+	if p.SteamID != 0 {
+		sourcePlayer := l.GetPlayer(p.Src)
+		targetPlayer := l.GetPlayerSteamID(p.SteamID)
+		if sourcePlayer != nil && targetPlayer != nil {
+			p.SteamID = sourcePlayer.SteamID
+			l.SendTo(p, targetPlayer.Addr)
+		}
+	}
 }
 
 func onClientRequestingAccepting(p *packet, l *lobby) {
@@ -111,8 +125,10 @@ func onClientRequestingIndex(p *packet, l *lobby) {
 		}
 	}
 
-	packetClientInit.Grow(6)
+	packetClientInit.Grow(2)
 	packetClientInit.WriteU16LENext([]uint16{0}) //Weapons to spawn, none until weapon keys are understood
+
+	packetClientInit.Grow(4)
 	packetClientInit.WriteBytesNext([]byte{
 		0, //Map count
 		0, //Health
@@ -158,7 +174,10 @@ func onClientReadyUp(p *packet, l *lobby) {
 		return
 	}*/
 
-	l.Players[l.GetPlayerIndex(p.Src)].Status.Ready = true
+	playerIndex := l.GetPlayerIndex(p.Src)
+	l.Players[playerIndex].Status.Ready = true
+	l.Players[playerIndex].Status.Dead = false
+	l.Players[playerIndex].Status.Health = l.GetMaxHealth()
 
 	if l.InFight {
 		l.SendTo(newPacket(packetTypeStartMatch, 0, 0), p.Src)
@@ -179,18 +198,4 @@ func onKickPlayer(p *packet, l *lobby) {
 	} else {
 		log.Info("Kicked player ", steamUsername(steamID))
 	}
-}
-
-func onClientRequestingWeaponDrop(p *packet, l *lobby) {
-	//TODO: Generate values correctly
-	nextWeaponSpawnID         := uint16(0) //l.GetNextWeaponSpawnID(beginFromEnd = false)
-	nextSyncableObjectSpawnID := uint16(0) //l.GetNextSyncableObjectSpawnID(beginFromEnd = false)
-
-	p.Type = packetTypeWeaponDropped
-	p.WriteU16LENext([]uint16{nextWeaponSpawnID, nextSyncableObjectSpawnID})
-	l.Broadcast(p, nil)
-}
-func onClientRequestingWeaponPickUp(p *packet, l *lobby) {
-	p.Type = packetTypeWeaponWasPickedUp
-	l.Broadcast(p, nil)
 }

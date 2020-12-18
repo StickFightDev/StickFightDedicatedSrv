@@ -136,7 +136,7 @@ const (
 	packetTypeMapChange
 	packetTypeWeaponSpawned
 	packetTypeWeaponThrown
-	packetTypeRequestingWeaponThrow
+	packetTypeClientRequestingWeaponThrow
 	packetTypeClientRequestingWeaponDrop
 	packetTypeWeaponDropped
 	packetTypeWeaponWasPickedUp
@@ -201,8 +201,8 @@ func getPacketType(packetType packetType) string {
 		return "weaponSpawned"
 	case packetTypeWeaponThrown:
 		return "weaponThrown"
-	case packetTypeRequestingWeaponThrow:
-		return "requestingWeaponThrow"
+	case packetTypeClientRequestingWeaponThrow:
+		return "clientRequestingWeaponThrow"
 	case packetTypeClientRequestingWeaponDrop:
 		return "clientRequestingWeaponDrop"
 	case packetTypeWeaponDropped:

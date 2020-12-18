@@ -64,31 +64,9 @@ func onPlayerUpdate(p *packet, l *lobby) {
 }
 
 func onPlayerTookDamage(p *packet, l *lobby) {
-	playerIndex := l.GetPlayerIndex(p.Src)
-
-	if l.Players[playerIndex].Status.Dead {
-		log.Warn("Player ", playerIndex, " took damage despite being dead!")
-		return
-	}
-	if !l.IsPlayerReady(playerIndex) && l.MapIndex > -1 { //Make sure player is ready if not in lobby map
-		log.Warn("Player ", playerIndex, " took damage despite not being ready!")
-		//return
-	}
-
 	attackerIndex := int(p.ReadByteNext())
-	if attackerIndex == playerIndex {
-		log.Warn("Player ", playerIndex, " tried damaging themselves, just a spawn glitch!")
-		//return
-	}
-
 	damage := p.ReadF32LENext(1)[0]
-	killingBlow := false
-	if damage == 666.666 {
-		killingBlow = true
-	}
-
 	typeDamage := byte(damageTypeOther)
-
 	playParticles := p.ReadByteNext()
 	particleDirection := vector3{}
 	if playParticles == 1 {
@@ -102,11 +80,22 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 		typeDamage = p.ReadByteNext()
 	}
 
+	playerIndex := l.GetPlayerIndex(p.Src)
+
+	if l.Players[playerIndex].Status.Dead || l.Players[playerIndex].Status.Health <= 0 {
+		log.Warn("Player ", playerIndex, " took damage despite being dead!")
+		return
+	}
+	if !l.IsPlayerReady(playerIndex) && l.MapIndex > -1 { //Make sure player is ready if not in lobby map
+		log.Warn("Player ", playerIndex, " took damage despite not being ready!")
+		return
+	}
+
 	if damageType(typeDamage) == damageTypePunch && playerIndex != attackerIndex {
 		l.Players[attackerIndex].Stats.PunchesLanded++
 	}
 
-	if killingBlow {
+	if damage == 666.666 {
 		log.Info("Player ", playerIndex, " took a killing blow from player ", attackerIndex, " of type ", typeDamage)
 		l.Players[playerIndex].Status.Health = 0
 		l.Players[playerIndex].Status.Dead = true
@@ -115,7 +104,7 @@ func onPlayerTookDamage(p *packet, l *lobby) {
 		l.Players[attackerIndex].Stats.Kills++
 
 		//if l.GetPlayersInLobby(playerIndex) > 0 {
-			l.CheckWinner(attackerIndex)
+		l.CheckWinner(attackerIndex)
 		//}
 	} else {
 		log.Info("Player ", playerIndex, " took ", damage, " damage from player ", attackerIndex, " of type ", typeDamage)
@@ -211,7 +200,7 @@ func onPlayerTalked(p *packet, l *lobby) {
 					respMsg = "Invalid scene index!"
 					break
 				}
-				tempMap := l.TempMap(sceneIndex)
+				tempMap := l.TempMap(sceneIndex, 255)
 				respMsg = "New map: " + tempMap.String() + "!"
 			default:
 				mapIndex, err := strconv.Atoi(cmd[1])
@@ -228,6 +217,30 @@ func onPlayerTalked(p *packet, l *lobby) {
 		case "spawnall":
 			l.SpawnPlayers()
 			respMsg = "Spawned players!"
+		case "weapon":
+			if len(cmd) < 4 {
+				respMsg = "/weapon id posY posZ"
+				break
+			}
+
+			weaponID, err := strconv.Atoi(cmd[1])
+			if err != nil {
+				respMsg = "Invalid ID!"
+				break
+			}
+			posY, err := strconv.Atoi(cmd[2])
+			if err != nil {
+				respMsg = "Invalid posY!"
+				break
+			}
+			posZ, err := strconv.Atoi(cmd[3])
+			if err != nil {
+				respMsg = "Invalid posZ!"
+				break
+			}
+
+			l.SpawnWeapon(weaponID, vector3{Y: float32(posY), Z: float32(posZ)})
+			respMsg = "Spawned weapon " + cmd[1] + "!"
 		case "kick":
 			if len(cmd) < 2 {
 				respMsg = "Must specify player to kick!"
@@ -267,11 +280,13 @@ func onPlayerTalked(p *packet, l *lobby) {
 			respMsg = "Unknown command!"
 		}
 
-		resp := newPacket(packetTypePlayerTalked, l.Players[l.GetHostIndex()].EventChannel, l.Players[l.GetHostIndex()].SteamID)
-		respBytes := []byte(respMsg)
-		resp.Grow(int64(len(respBytes)))
-		resp.WriteBytesNext(respBytes)
-		l.SendTo(resp, p.Src)
+		if respMsg != "" {
+			resp := newPacket(packetTypePlayerTalked, l.Players[l.GetHostIndex()].EventChannel, l.Players[l.GetHostIndex()].SteamID)
+			respBytes := []byte(respMsg)
+			resp.Grow(int64(len(respBytes)))
+			resp.WriteBytesNext(respBytes)
+			l.SendTo(resp, p.Src)
+		}
 	}
 }
 
@@ -279,15 +294,9 @@ func onPlayerFallOut(p *packet, l *lobby) {
 	playerIndex := int(p.ReadByteNext())
 
 	log.Info("Player ", playerIndex, " fell out of the map")
-	l.Players[playerIndex].Status.Health = 0
-	l.Players[playerIndex].Status.Dead = true
-	l.Players[playerIndex].Stats.Deaths++
-
-	l.CheckWinner(playerIndex)
-
 	l.Broadcast(p, p.Src)
 }
 
-func onPlayerForceAdded(p *packet, l *lobby) {l.Broadcast(p, p.Src)}
-func onPlayerForceAddedAndBlock(p *packet, l *lobby) {l.Broadcast(p, p.Src)}
-func onPlayerLavaForceAdded(p *packet, l *lobby) {l.Broadcast(p, p.Src)}
+func onPlayerForceAdded(p *packet, l *lobby)         { l.Broadcast(p, p.Src) }
+func onPlayerForceAddedAndBlock(p *packet, l *lobby) { l.Broadcast(p, p.Src) }
+func onPlayerLavaForceAdded(p *packet, l *lobby)     { l.Broadcast(p, p.Src) }
