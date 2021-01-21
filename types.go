@@ -1,13 +1,11 @@
 package main
 
-type vector2 struct {
+//Vector2 holds a 2D coordinate
+type Vector2 struct {
 	X, Y float32
 }
 
-type vector3 struct {
+//Vector3 holds a 3D coordinate
+type Vector3 struct {
 	X, Y, Z float32
-}
-
-type quaternion struct {
-	X, Y, Z, W float32
 }

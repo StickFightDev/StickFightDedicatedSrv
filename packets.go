@@ -9,79 +9,29 @@ import (
 	crunch "github.com/superwhiskers/crunch/v3"
 )
 
-var (
-	packetHandlers map[packetType]func(*packet, *lobby) = make(map[packetType]func(*packet, *lobby))
-)
-
 const (
 	sophSize = 5
 	eophSize = 9
 )
 
-func addHandler(packetType packetType, handler func(*packet, *lobby)) {
-	packetHandlers[packetType] = handler
-}
-
-type packet struct {
+//Packet holds a Stick Fight network packet
+type Packet struct {
 	*crunch.Buffer //Holds the data buffer, and provides additional methods to directly read and write on this buffer
 
 	Timestamp uint32       //The timestamp of the packet
 	Src       *net.UDPAddr //The source UDP socket where this packet came from, nil if sending a packet
 	Channel   int          //The channel for this packet to travel through
-	SteamID   uint64       //The Steam ID of the user who sent or is intended to receive this packet
-	Type      packetType   //The type of the packet, to allow easy packet creation
+	SteamID   CSteamID     //The Steam ID of the user who sent or is intended to receive this packet
+	Type      PacketType   //The type of the packet, to allow easy packet creation
 }
 
-func newPacket(pkType packetType, channel int, steamID uint64) *packet {
-	pk := &packet{crunch.NewBuffer(make([]byte, 0)), uint32(time.Now().Unix()), nil, channel, steamID, pkType}
-	return pk
+//NewPacket returns a new deserialized Stick Fight network packet
+func NewPacket(packetType PacketType, channel int, steamID uint64) *Packet {
+	return &Packet{crunch.NewBuffer(make([]byte, 0)), uint32(time.Now().Unix()), nil, channel, NewCSteamID(steamID), packetType}
 }
 
-func (p *packet) Handle(l *lobby) {
-	//Tunnel the packet to a target client if specified
-	if p.SteamID != 0 && l != nil {
-		for _, pl := range l.Players {
-			if pl.Addr != nil && pl.SteamID == p.SteamID {
-				l.SendTo(p, pl.Addr)
-				break
-			}
-		}
-	}
-	if handler, ok := packetHandlers[p.Type]; ok { //If p.Type (the packet type) is a key in the packetHandlers map
-		p.SeekByte(0, false) //Make sure the handler starts at offset 0 regardless of pre-processing
-		handler(p, l)        //Execute its value handler, which is a packet handler function that takes the source packet from the socket and its lobby as arguments
-	} else {
-		log.Error("packet type ", getPacketType(p.Type), " not implemented yet, data: ", p.AsBytes()) //We don't have a handler for this packet, so log it and its data as decimal bytes
-	}
-
-	//Mark this address as done processing the packet
-	//addrQueue.done(p.Src)
-}
-
-func (p *packet) String() string {
-	str := fmt.Sprintf("[%d %d]", p.Channel, int64(p.Timestamp))
-	if p.SteamID != noSteamID {
-		str += " " + steamUsername(p.SteamID)
-	}
-	str += fmt.Sprintf(": %s %v", getPacketType(p.Type), p.Bytes())
-
-	return str
-}
-
-func (p *packet) AsBytes() []byte {
-	buf := crunch.NewBuffer(make([]byte, sophSize+eophSize+int(p.ByteCapacity())))
-
-	buf.WriteU32LENext([]uint32{p.Timestamp})
-	buf.WriteByteNext(byte(p.Type))
-	if p.ByteCapacity() > 0 {
-		buf.WriteBytesNext(p.Bytes())
-	}
-	buf.WriteU64LENext([]uint64{p.SteamID})
-	buf.WriteByteNext(byte(p.Channel))
-	return buf.Bytes()
-}
-
-func newPacketFromBytes(data []byte) (*packet, error) {
+//NewPacketFromBytes returns a Stick Fight network packet deserialized from bytes
+func NewPacketFromBytes(data []byte) (packet *Packet, err error) {
 	if len(data) < sophSize+eophSize {
 		return nil, errors.New("packet size too small")
 	}
@@ -92,72 +42,79 @@ func newPacketFromBytes(data []byte) (*packet, error) {
 	//Official start of packet header
 	//Size: 5 bytes + data
 	//0x0  (4 bytes, uint32) - Packet timestamp
-	//0x4  (1 byte,  int)    - Packet type
+	//0x4  (1 byte,  byte)   - Packet type
 	//0x5… (x bytes)         - Packet data, to be interpreted by the packet type's handler
-	p := newPacket(packetTypeNull, 0, 0)
-	p.Timestamp = buf.ReadU32LENext(1)[0]
-	p.Type = packetType(buf.ReadByteNext())
+	packet = NewPacket(packetTypeNull, 0, 0)
+	packet.Timestamp = buf.ReadU32LENext(1)[0]
+	packet.Type = PacketType(buf.ReadByteNext())
 	if dataLen > 0 {
-		p.Grow(dataLen)
-		p.WriteBytesNext(buf.ReadBytesNext(dataLen))
+		packet.Grow(dataLen)
+		packet.WriteBytesNext(buf.ReadBytesNext(dataLen))
+		packet.SeekByte(0, false) //Seek back to the start of the packet for the next read/write
 	}
 
 	//Custom end of packet header, directly following the packet's data
 	//Size so far: 9 bytes
 	//0x0 (8 bytes, uint64) - The Steam ID of the user who is the intended recipient of the packet
 	//0x8 (1 byte,  int)    - The channel, which was originally handled by Steam's networking library, and is required by the game's packet handling logic
-	p.SteamID = buf.ReadU64LENext(1)[0]
-	p.Channel = int(buf.ReadByteNext())
+	packet.SteamID = NewCSteamID(buf.ReadU64LENext(1)[0])
+	packet.Channel = int(buf.ReadByteNext())
 
-	return p, nil
+	return packet, nil
 }
 
-type packetType byte
+func (packet *Packet) String() string {
+	str := fmt.Sprintf("[%d %d]", packet.Channel, packet.Timestamp)
+	if packet.SteamID.ID != 0 {
+		str += " " + packet.SteamID.GetUsername()
+	}
+	str += fmt.Sprintf(": %d:%s %v", packet.Type, packet.Type.String(), packet.Bytes())
 
-const (
-	packetTypePing packetType = iota
-	packetTypePingResponse
-	packetTypeClientJoined
-	packetTypeClientRequestingAccepting
-	packetTypeClientAccepted
-	packetTypeClientInit
-	packetTypeClientRequestingIndex
-	packetTypeClientRequestingToSpawn
-	packetTypeClientSpawned
-	packetTypeClientReadyUp
-	packetTypePlayerUpdate
-	packetTypePlayerTookDamage
-	packetTypePlayerTalked
-	packetTypePlayerForceAdded
-	packetTypePlayerForceAddedAndBlock
-	packetTypePlayerLavaForceAdded
-	packetTypePlayerFallOut
-	packetTypePlayerWonWithRicochet
-	packetTypeMapChange
-	packetTypeWeaponSpawned
-	packetTypeWeaponThrown
-	packetTypeClientRequestingWeaponThrow
-	packetTypeClientRequestingWeaponDrop
-	packetTypeWeaponDropped
-	packetTypeWeaponWasPickedUp
-	packetTypeClientRequestingWeaponPickUp
-	packetTypeObjectUpdate
-	packetTypeObjectSpawned
-	packetTypeObjectSimpleDestruction
-	packetTypeObjectInvokeDestructionEvent
-	packetTypeObjectDestructionCollision
-	packetTypeGroundWeaponsInit
-	packetTypeMapInfo
-	packetTypeMapInfoSync
-	packetTypeWorkshopMapsLoaded
-	packetTypeStartMatch
-	packetTypeObjectHello
-	packetTypeOptionsChanged
-	packetTypeKickPlayer
-	packetTypeNull = 255
-)
+	return str
+}
 
-func getPacketType(packetType packetType) string {
+//AsBytes returns a Stick Fight network packet serialized as bytes
+func (packet *Packet) AsBytes() []byte {
+	dataLen := int(packet.ByteCapacity())
+	buf := crunch.NewBuffer(make([]byte, sophSize+dataLen+eophSize))
+
+	buf.WriteU32LENext([]uint32{packet.Timestamp})
+	buf.WriteByteNext(byte(packet.Type))
+	if dataLen > 0 {
+		buf.WriteBytesNext(packet.Bytes())
+	}
+	buf.WriteU64LENext([]uint64{packet.SteamID.ID})
+	buf.WriteByteNext(byte(packet.Channel))
+
+	return buf.Bytes()
+}
+
+//ShouldLog returns true if this packet should be logged
+func (packet *Packet) ShouldLog() bool {
+	switch packet.Type {
+	case packetTypePlayerUpdate:
+		if !logPlayerUpdate {
+			return false
+		}
+	}
+
+	return true
+}
+
+//ShouldCheckTime returns true if this packet should have its timestamp checked
+func (packet *Packet) ShouldCheckTime() bool {
+	switch packet.Type {
+	case packetTypePing, packetTypePingResponse, packetTypeClientReadyUp, packetTypePlayerUpdate, packetTypePlayerTalked, packetTypePlayerForceAdded, packetTypePlayerForceAddedAndBlock, packetTypePlayerLavaForceAdded, packetTypePlayerFallOut, packetTypePlayerWonWithRicochet, packetTypePlayerTookDamage, packetTypeClientRequestingWeaponThrow:
+		return false
+	}
+
+	return true
+}
+
+//PacketType is the type of a packet, which determines how to interpret the data associated with the packet
+type PacketType byte
+
+func (packetType PacketType) String() string {
 	switch packetType {
 	case packetTypePing:
 		return "ping"
@@ -235,7 +192,59 @@ func getPacketType(packetType packetType) string {
 		return "optionsChanged"
 	case packetTypeKickPlayer:
 		return "kickPlayer"
+	case packetTypeClientLeft:
+		return "clientLeft"
+	case packetTypeLobbyType:
+		return "lobbyType"
+	case packetTypeRequestingOptions:
+		return "requestingOptions"
 	}
 
-	return fmt.Sprintf("unknown(%d)", packetType)
+	return fmt.Sprintf("unknown%d", packetType)
 }
+
+const (
+	packetTypePing PacketType = iota
+	packetTypePingResponse
+	packetTypeClientJoined
+	packetTypeClientRequestingAccepting
+	packetTypeClientAccepted
+	packetTypeClientInit
+	packetTypeClientRequestingIndex
+	packetTypeClientRequestingToSpawn
+	packetTypeClientSpawned
+	packetTypeClientReadyUp
+	packetTypePlayerUpdate
+	packetTypePlayerTookDamage
+	packetTypePlayerTalked
+	packetTypePlayerForceAdded
+	packetTypePlayerForceAddedAndBlock
+	packetTypePlayerLavaForceAdded
+	packetTypePlayerFallOut
+	packetTypePlayerWonWithRicochet
+	packetTypeMapChange
+	packetTypeWeaponSpawned
+	packetTypeWeaponThrown
+	packetTypeClientRequestingWeaponThrow
+	packetTypeClientRequestingWeaponDrop
+	packetTypeWeaponDropped
+	packetTypeWeaponWasPickedUp
+	packetTypeClientRequestingWeaponPickUp
+	packetTypeObjectUpdate
+	packetTypeObjectSpawned
+	packetTypeObjectSimpleDestruction
+	packetTypeObjectInvokeDestructionEvent
+	packetTypeObjectDestructionCollision
+	packetTypeGroundWeaponsInit
+	packetTypeMapInfo
+	packetTypeMapInfoSync
+	packetTypeWorkshopMapsLoaded
+	packetTypeStartMatch
+	packetTypeObjectHello
+	packetTypeOptionsChanged
+	packetTypeKickPlayer
+	packetTypeClientLeft
+	packetTypeLobbyType
+	packetTypeRequestingOptions
+	packetTypeNull = 255
+)

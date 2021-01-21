@@ -2,14 +2,21 @@
 *.exe
 *.app
 *.old
-StickFightDedicatedSrv
+*.bak
+*StickFightDedicatedSrv*
 
 # Log files
 *.log
 
-# Supervise
+# Supervise on Linux
 run
 supervise/
 
+# Windows
+run.bat
+
 # OS leftovers
 desktop.ini
+
+# Server maps
+maps/
