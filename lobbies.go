@@ -829,7 +829,7 @@ func (lobby *Lobby) StartMatch() {
 		return
 	}
 
-	//time.Sleep(time.Second * 3)
+	time.Sleep(time.Second * 3)
 
 	//TODO: Send list of pre-spawned weapons
 	//TODO: Start goroutines for each object to track
@@ -843,6 +843,9 @@ func (lobby *Lobby) StartMatch() {
 
 	lastWeaponSpawn := time.Now()
 	weaponSpawnWait := randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin) + lobby.WeaponSpawnRateMin
+	if lobby.TourneyRules {
+		weaponSpawnWait = randomizer.Intn(5 - 3) + 3 //3s min, 5s max
+	}
 	for lobby.MatchInProgress() {
 		if !lobby.MatchInProgress() {
 			break
@@ -852,6 +855,9 @@ func (lobby *Lobby) StartMatch() {
 			lobby.SpawnWeaponRandom()
 
 			weaponSpawnWait = randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin) + lobby.WeaponSpawnRateMin
+			if lobby.TourneyRules {
+				weaponSpawnWait = randomizer.Intn(5 - 3) + 3
+			}
 			lastWeaponSpawn = time.Now()
 		}
 	}
@@ -1550,6 +1556,25 @@ func (lobby *Lobby) SpawnWeapon(weaponID int, weaponSpawnPos Vector3) {
 	log.Info("Spawned weapon ", weaponID, " at position ", weaponSpawnPos)
 }
 
+//SpawnWeapons spawns a list of weapons at the specified positions on the map
+func (lobby *Lobby) SpawnWeapons(weaponIDs []int, weaponSpawnPositions []Vector3) {
+	if !lobby.IsRunning() {
+		return
+	}
+
+	if !lobby.MatchInProgress() {
+		return
+	}
+
+	if len(weaponIDs) != len(weaponSpawnPositions) {
+		return
+	}
+
+	for i := 0; i < len(weaponIDs); i++ {
+		lobby.SpawnWeapon(weaponIDs[i], weaponSpawnPositions[i])
+	}
+}
+
 //SpawnWeaponRandom spawns a random weapon on the map
 func (lobby *Lobby) SpawnWeaponRandom() {
 	if !lobby.IsRunning() {
@@ -1560,17 +1585,23 @@ func (lobby *Lobby) SpawnWeaponRandom() {
 		return
 	}
 
-	height := 11.0 * lobby.LastAppliedScale
-	x := float32(randomizer.Intn(8))
-	if lobby.TourneyRules {
-		x = float32(randomizer.Intn(2))
-	}
-	if lobby.LastSpawnedWeaponOnLeftSide {
-		x *= -1.0
-	}
-	lobby.LastSpawnedWeaponOnLeftSide = !lobby.LastSpawnedWeaponOnLeftSide
+	weaponIDs := make([]int, randomizer.Intn(lobby.GetPlayerCount(false)))
+	weaponSpawnPositions := make([]Vector3, len(weaponIDs))
+	for i := 0; i < len(weaponIDs); i++ {
+		weaponIDs[i] = validWeapons[randomizer.Intn(len(validWeapons)-1)]
 
-	weaponSpawnPos := Vector3{0, 1 * height, 1 * x}
-	weaponID := validWeapons[randomizer.Intn(len(validWeapons)-1)]
-	lobby.SpawnWeapon(weaponID, weaponSpawnPos)
+		height := 11.0 * lobby.LastAppliedScale
+		x := float32(randomizer.Intn(8))
+		if lobby.TourneyRules {
+			x = float32(randomizer.Intn(2))
+		}
+		if lobby.LastSpawnedWeaponOnLeftSide {
+			x *= -1.0
+		}
+		lobby.LastSpawnedWeaponOnLeftSide = !lobby.LastSpawnedWeaponOnLeftSide
+
+		weaponSpawnPositions[i] = Vector3{0, 1 * height, 1 * x}
+	}
+
+	lobby.SpawnWeapons(weaponIDs, weaponSpawnPositions)
 }
