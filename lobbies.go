@@ -844,7 +844,7 @@ func (lobby *Lobby) StartMatch() {
 	lastWeaponSpawn := time.Now()
 	weaponSpawnWait := randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin) + lobby.WeaponSpawnRateMin
 	if lobby.TourneyRules {
-		weaponSpawnWait = randomizer.Intn(5 - 3) + 3 //3s min, 5s max
+		weaponSpawnWait = randomizer.Intn(5-3) + 3 //3s min, 5s max
 	}
 	for lobby.MatchInProgress() {
 		if !lobby.MatchInProgress() {
@@ -856,7 +856,7 @@ func (lobby *Lobby) StartMatch() {
 
 			weaponSpawnWait = randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin) + lobby.WeaponSpawnRateMin
 			if lobby.TourneyRules {
-				weaponSpawnWait = randomizer.Intn(5 - 3) + 3
+				weaponSpawnWait = randomizer.Intn(5-3) + 3
 			}
 			lastWeaponSpawn = time.Now()
 		}
@@ -1585,7 +1585,7 @@ func (lobby *Lobby) SpawnWeaponRandom() {
 		return
 	}
 
-	weaponIDs := make([]int, randomizer.Intn(lobby.GetPlayerCount(false)))
+	weaponIDs := make([]int, randomizer.Intn(lobby.GetPlayerCount(false)+1))
 	weaponSpawnPositions := make([]Vector3, len(weaponIDs))
 	for i := 0; i < len(weaponIDs); i++ {
 		weaponIDs[i] = validWeapons[randomizer.Intn(len(validWeapons)-1)]
