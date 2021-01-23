@@ -1,13 +1,13 @@
 package main
 
 var (
-	validWeapons = []int{
-		0, 6, 61, 16, 31, 1,
-		60, 32, 5, 62, 10, 20,
-		3, 12, 22, 24, 37, 25,
-		26, 33, 64, 38, 39, 35,
-		36, 40, 2, 4, 63, 21,
-		14, 7, 41, 27, 19, 23,
+	validWeapons = []Weapon{
+		weaponPistol, weaponRevolver, weaponDeagle, weaponUzi, weaponGodPistol, weaponAK47,
+		weaponM16, weaponM1, weaponSniper, weaponSawedOff, weaponMilitaryShotgun, weaponBouncer,
+		weaponGrenadeLauncher, weaponThruster, weaponRPG, weaponSnakePistol, weaponSnakeShotgun, weaponSnakeGrenade,
+		weaponSnakeLauncher, weaponSnakeMinigun, weaponFlyingSnake, weaponSpikeBall, weaponLavaBeam, weaponLavaStream,
+		weaponLavaSpray, weaponSpikeGun, weaponSword, weaponBlinkDagger, weaponSpear, weaponTimeBubble,
+		weaponLaser, weaponIceGun, weaponBlackHole, weaponGlueGun, weaponMinigun, weaponFlameThrower,
 	}
 )
 

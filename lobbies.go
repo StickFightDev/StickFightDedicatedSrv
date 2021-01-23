@@ -1531,7 +1531,7 @@ func (lobby *Lobby) PlayerThought(playerIndex int, msg string, data ...interface
 }
 
 //SpawnWeapon spawns the specified weapon on the map
-func (lobby *Lobby) SpawnWeapon(weaponID int, weaponSpawnPos Vector3) {
+func (lobby *Lobby) SpawnWeapon(weaponID Weapon, weaponSpawnPos Vector3) {
 	if !lobby.IsRunning() {
 		return
 	}
@@ -1557,7 +1557,7 @@ func (lobby *Lobby) SpawnWeapon(weaponID int, weaponSpawnPos Vector3) {
 }
 
 //SpawnWeapons spawns a list of weapons at the specified positions on the map
-func (lobby *Lobby) SpawnWeapons(weaponIDs []int, weaponSpawnPositions []Vector3) {
+func (lobby *Lobby) SpawnWeapons(weapons []Weapon, weaponSpawnPositions []Vector3) {
 	if !lobby.IsRunning() {
 		return
 	}
@@ -1566,12 +1566,12 @@ func (lobby *Lobby) SpawnWeapons(weaponIDs []int, weaponSpawnPositions []Vector3
 		return
 	}
 
-	if len(weaponIDs) != len(weaponSpawnPositions) {
+	if len(weapons) != len(weaponSpawnPositions) {
 		return
 	}
 
-	for i := 0; i < len(weaponIDs); i++ {
-		lobby.SpawnWeapon(weaponIDs[i], weaponSpawnPositions[i])
+	for i := 0; i < len(weapons); i++ {
+		lobby.SpawnWeapon(weapons[i], weaponSpawnPositions[i])
 	}
 }
 
@@ -1585,10 +1585,10 @@ func (lobby *Lobby) SpawnWeaponRandom() {
 		return
 	}
 
-	weaponIDs := make([]int, randomizer.Intn(lobby.GetPlayerCount(false)+1))
-	weaponSpawnPositions := make([]Vector3, len(weaponIDs))
-	for i := 0; i < len(weaponIDs); i++ {
-		weaponIDs[i] = validWeapons[randomizer.Intn(len(validWeapons)-1)]
+	weapons := make([]Weapon, randomizer.Intn(lobby.GetPlayerCount(false)+1))
+	weaponSpawnPositions := make([]Vector3, len(weapons))
+	for i := 0; i < len(weapons); i++ {
+		weapons[i] = validWeapons[randomizer.Intn(len(validWeapons)-1)]
 
 		height := 11.0 * lobby.LastAppliedScale
 		x := float32(randomizer.Intn(8))
@@ -1603,5 +1603,5 @@ func (lobby *Lobby) SpawnWeaponRandom() {
 		weaponSpawnPositions[i] = Vector3{0, 1 * height, 1 * x}
 	}
 
-	lobby.SpawnWeapons(weaponIDs, weaponSpawnPositions)
+	lobby.SpawnWeapons(weapons, weaponSpawnPositions)
 }
