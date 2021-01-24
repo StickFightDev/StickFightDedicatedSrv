@@ -9,6 +9,21 @@ var (
 		weaponLavaSpray, weaponSpikeGun, weaponSword, weaponBlinkDagger, weaponSpear, weaponTimeBubble,
 		weaponLaser, weaponIceGun, weaponBlackHole, weaponGlueGun, weaponMinigun, weaponFlameThrower,
 	}
+	tourneyWeapons = []Weapon{
+		weaponPistol,
+		weaponRevolver,
+		weaponDeagle,
+		weaponM1,
+		weaponSniper,
+		weaponMilitaryShotgun,
+		weaponGrenadeLauncher,
+		weaponThruster,
+		weaponSnakePistol,
+		weaponSnakeLauncher,
+		weaponSword,
+		weaponSpear,
+		weaponIceGun,
+	}
 )
 
 //Weapon is the weapon ID of a weapon

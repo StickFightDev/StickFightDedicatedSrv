@@ -23,6 +23,7 @@ type Lobby struct {
 	Regen              byte       //If health regeneration should be enabled
 	WeaponSpawnRateMin int        //The minimum amount of seconds to wait before spawning a new weapon, 0 to disable weapon spawning
 	WeaponSpawnRateMax int        //The maximum amount of seconds to wait before spawning a new weapon, 0 to disable weapon spawning
+	Weapons            []Weapon   //A list of enabled weapons for this lobby
 	Public             bool       //If false, requires an invitation from the lobby owner to join
 	TourneyRules       bool       //If enabled, tourney rules will be in effect and override stock game rules
 	Invited            []CSteamID //A list of invited SteamIDs
@@ -59,6 +60,7 @@ func NewLobby(srv *Server) (*Lobby, error) {
 		MaxPlayers:         4,                                                //Default to a max of 4 players, as expected by the stock game
 		WeaponSpawnRateMin: 5,                                                //Default to one weapon at least for every 5 seconds
 		WeaponSpawnRateMax: 8,                                                //Default to one weapon at max for every 8 seconds
+		Weapons:            validWeapons,                                     //Default to the full valid weapon list
 		CurrentLevel:       lobbyLevels[randomizer.Intn(len(lobbyLevels)-1)], //Default to a random lobby map
 		LastAppliedScale:   1.0,                                              //The last applied map scaling, used to scale objects and other positions on the map
 		Clients:            make([]*Client, 0),                               //Initialize the clients slice
@@ -842,10 +844,8 @@ func (lobby *Lobby) StartMatch() {
 	log.Info("Started match!")
 
 	lastWeaponSpawn := time.Now()
-	weaponSpawnWait := randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin) + lobby.WeaponSpawnRateMin
-	if lobby.TourneyRules {
-		weaponSpawnWait = randomizer.Intn(5-3) + 3 //3s min, 5s max
-	}
+	weaponSpawnWait := randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin+1) + lobby.WeaponSpawnRateMin
+	log.Trace("Weapon initial spawn wait: ", weaponSpawnWait)
 	for lobby.MatchInProgress() {
 		if !lobby.MatchInProgress() {
 			break
@@ -854,10 +854,8 @@ func (lobby *Lobby) StartMatch() {
 		if int(time.Now().Sub(lastWeaponSpawn)/time.Second) >= weaponSpawnWait {
 			lobby.SpawnWeaponRandom()
 
-			weaponSpawnWait = randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin) + lobby.WeaponSpawnRateMin
-			if lobby.TourneyRules {
-				weaponSpawnWait = randomizer.Intn(5-3) + 3
-			}
+			weaponSpawnWait = randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin+1) + lobby.WeaponSpawnRateMin
+			log.Trace("Weapon next spawn wait: ", weaponSpawnWait)
 			lastWeaponSpawn = time.Now()
 		}
 	}
@@ -1342,8 +1340,12 @@ func (lobby *Lobby) PlayerTalked(packet *Packet) {
 				lobby.TourneyRules = !lobby.TourneyRules
 				if lobby.TourneyRules {
 					lobby.PlayerSaid(playerIndex, "Enabled tournament rules!")
+					lobby.WeaponSpawnRateMin = 3
+					lobby.WeaponSpawnRateMax = 5
+					lobby.Weapons = tourneyWeapons
 				} else {
 					lobby.PlayerSaid(playerIndex, "Disabled tournament rules!")
+					lobby.Server.SendPacket(NewPacket(packetTypeRequestingOptions, 0, 0), packet.Src) //Request the host's options
 				}
 			} else {
 				lobby.PlayerSaid(playerIndex, "No permissions!")
@@ -1585,10 +1587,11 @@ func (lobby *Lobby) SpawnWeaponRandom() {
 		return
 	}
 
-	weapons := make([]Weapon, randomizer.Intn(lobby.GetPlayerCount(false)+1))
+	weapons := make([]Weapon, randomizer.Intn(lobby.GetPlayerCount(false))+1)
+	log.Trace("Weapons to spawn: ", len(weapons))
 	weaponSpawnPositions := make([]Vector3, len(weapons))
 	for i := 0; i < len(weapons); i++ {
-		weapons[i] = validWeapons[randomizer.Intn(len(validWeapons)-1)]
+		weapons[i] = lobby.Weapons[randomizer.Intn(len(lobby.Weapons))]
 
 		height := 11.0 * lobby.LastAppliedScale
 		x := float32(randomizer.Intn(8))
