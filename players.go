@@ -5,13 +5,15 @@ type Player struct {
 	Client *Client //The client that's hosting this player
 
 	//Player session tracking
-	Index    int             //The index of the player array where Stick Fight clients expect to find this player
-	Stats    PlayerStats     //The player's statistics for the match session so far
-	Health   float32         //The current health of the player
-	Ready    bool            //If the player is ready for the next match
-	Spawned  bool            //If the server has spawned the player already
-	Position NetworkPosition //The current position of the player
-	Weapon   NetworkWeapon   //The current weapon of the player
+	Index             int             //The index of the player array where Stick Fight clients expect to find this player
+	Stats             PlayerStats     //The player's statistics for the match session so far
+	Health            float32         //The current health of the player
+	LastAttackerIndex int             //The index of the player that last attacked this player
+	LastDamageType    DamageType      //The last type of damage this player took
+	Ready             bool            //If the player is ready for the next match
+	Spawned           bool            //If the server has spawned the player already
+	Position          NetworkPosition //The current position of the player
+	Weapon            NetworkWeapon   //The current weapon of the player
 }
 
 //GetChannelUpdate returns the channel that update packets are expected on
@@ -40,9 +42,9 @@ func (player *Player) SetReady(ready bool) {
 }
 
 //SetPosition sets a player's network position
-func (player *Player) SetPosition(posX, posY, rotX, rotY float32, yValue int, movementType MovementType) {
+func (player *Player) SetPosition(posY, posZ, rotX, rotY float32, yValue float32, movementType MovementType) {
 	player.Position = NetworkPosition{
-		Position:     Vector2{posX, posY},
+		Position:     Vector3{Y: posY, Z: posZ},
 		Rotation:     Vector2{rotX, rotY},
 		YValue:       yValue,
 		MovementType: movementType,
@@ -50,10 +52,10 @@ func (player *Player) SetPosition(posX, posY, rotX, rotY float32, yValue int, mo
 }
 
 //SetWeapon sets a player's network weapon
-func (player *Player) SetWeapon(fightState FightState, weaponType WeaponType, projectiles []Projectile) {
+func (player *Player) SetWeapon(fightState FightState, weapon Weapon, projectiles []Projectile) {
 	player.Weapon = NetworkWeapon{
 		FightState:  fightState,
-		WeaponType:  weaponType,
+		Weapon:      weapon,
 		Projectiles: projectiles,
 	}
 }
@@ -69,9 +71,10 @@ type PlayerStats struct {
 
 //NetworkPosition holds a player's current position according to the network
 type NetworkPosition struct {
-	Position, Rotation Vector2
-	YValue             int
-	MovementType       MovementType
+	Position     Vector3
+	Rotation     Vector2
+	YValue       float32
+	MovementType MovementType
 }
 
 //MovementType is the type of player movement

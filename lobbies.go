@@ -28,6 +28,8 @@ type Lobby struct {
 	TourneyRules       bool       //If enabled, tourney rules will be in effect and override stock game rules
 	Invited            []CSteamID //A list of invited SteamIDs
 	RandomMaps         bool       //If the map rotation should be randomized or in order
+	GameMode           GameMode   //The game mode of this lobby
+	NextGameMode       GameMode   //The next game mode to use for this lobby
 
 	//Session tracker
 	Running                       bool      //If the lobby is currently running
@@ -65,6 +67,7 @@ func NewLobby(srv *Server) (*Lobby, error) {
 		LastAppliedScale:   1.0,                                              //The last applied map scaling, used to scale objects and other positions on the map
 		Clients:            make([]*Client, 0),                               //Initialize the clients slice
 		Levels:             defaultLevels,                                    //Default to the default levels list
+		GameMode:           Stock{},                                          //Default to the Stock game mode
 	}
 
 	return lobby, nil
@@ -380,7 +383,7 @@ func (lobby *Lobby) GetPlayersTooMany(playersToAdd int, excludeSelf bool) bool {
 
 //GetPlayers returns the current player list in order of playerIndex
 func (lobby *Lobby) GetPlayers() []*Player {
-	if lobby.Clients == nil || len(lobby.Clients) == 0 {
+	if lobby == nil || lobby.Clients == nil || len(lobby.Clients) == 0 {
 		return make([]*Player, 0)
 	}
 
@@ -684,6 +687,10 @@ func (lobby *Lobby) ClientRemoveByClientIndex(clientIndex int) {
 
 //ClientJoined broadcasts to the lobby that the specified player is now part of this lobby
 func (lobby *Lobby) ClientJoined(addr *net.UDPAddr, playerIndex int, steamID CSteamID) {
+	if lobby == nil {
+		return
+	}
+
 	packetClientJoined := NewPacket(packetTypeClientJoined, 0, 0)
 	packetClientJoined.Grow(9)
 	packetClientJoined.WriteByteNext(byte(playerIndex))
@@ -694,6 +701,10 @@ func (lobby *Lobby) ClientJoined(addr *net.UDPAddr, playerIndex int, steamID CSt
 
 //ClientLeft broadcasts to the lobby that the specified SteamID is no longer part of this lobby
 func (lobby *Lobby) ClientLeft(steamID CSteamID) {
+	if lobby == nil {
+		return
+	}
+
 	packetClientLeft := NewPacket(packetTypeClientLeft, 0, 0)
 	packetClientLeft.SteamID = steamID
 	lobby.BroadcastPacket(packetClientLeft, nil)
@@ -702,7 +713,7 @@ func (lobby *Lobby) ClientLeft(steamID CSteamID) {
 	if lobby.LobbyOwner.CompareCSteamID(steamID) {
 		lobbyPlayers := lobby.GetPlayers()
 		if len(lobbyPlayers) > 0 {
-			lobby.LobbyOwner = lobby.GetPlayers()[0].Client.SteamID
+			lobby.LobbyOwner = lobbyPlayers[0].Client.SteamID
 			log.Info("New lobby owner: ", lobby.LobbyOwner)
 		} else {
 			lobby.LobbyOwner = NewCSteamID(0)
@@ -805,10 +816,10 @@ func (lobby *Lobby) StartMatch() {
 		return
 	}
 
-	if lobby.CurrentLevel.IsLobby() {
+	/*if lobby.CurrentLevel.IsLobby() {
 		log.Warn("Can't start match on lobby map!")
 		return
-	}
+	}*/
 
 	if lobby.MatchInProgress() {
 		log.Warn("Can't start match when already in fight!")
@@ -819,10 +830,8 @@ func (lobby *Lobby) StartMatch() {
 	players := lobby.GetPlayers()
 	for _, player := range players {
 		if player != nil && !player.Ready {
-			lobby.PlayerSaid(player.Index, "I'm not ready!")
-			lobby.PlayerThought(player.Index, "If you can't ready up,\ntry typing /ready")
+			lobby.PlayerSaid(player.Index, "Either my internet or PC is slow, sorry!")
 			notReady = true
-			break
 		}
 	}
 
@@ -831,7 +840,7 @@ func (lobby *Lobby) StartMatch() {
 		return
 	}
 
-	time.Sleep(time.Second * 3)
+	//time.Sleep(time.Second * 3)
 
 	//TODO: Send list of pre-spawned weapons
 	//TODO: Start goroutines for each object to track
@@ -839,26 +848,44 @@ func (lobby *Lobby) StartMatch() {
 	//Initialize the map
 	lobby.InitMap()
 
+	//Reset player data
+	for i := 0; i < len(lobby.Clients); i++ {
+		if lobby.Clients[i].GetPlayerCount() > 0 {
+			for j := 0; j < len(lobby.Clients[i].Players); j++ {
+				lobby.Clients[i].Players[j].Health = lobby.GetMaxHealth()
+			}
+		}
+	}
+
+	switch lobby.NextGameMode.(type) {
+	case Stock:
+		switch lobby.GameMode.(type) {
+		case Stock:
+		default:
+			lobby.GameMode = Stock{}
+			log.Trace("-- Set game mode to Stock")
+		}
+	case Tournament:
+		switch lobby.GameMode.(type) {
+		case Tournament:
+		default:
+			lobby.GameMode = Tournament{}
+			log.Trace("-- Set game mode to Tournament")
+		}
+	case GunGame:
+		switch lobby.GameMode.(type) {
+		case GunGame:
+		default:
+			lobby.GameMode = GunGame{}
+			log.Trace("-- Set game mode to Gun Game")
+		}
+	}
+
 	lobby.FightStartTime = time.Now()
 	lobby.BroadcastPacket(NewPacket(packetTypeStartMatch, 0, 0), nil)
 	log.Info("Started match!")
 
-	lastWeaponSpawn := time.Now()
-	weaponSpawnWait := randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin+1) + lobby.WeaponSpawnRateMin
-	log.Trace("Weapon initial spawn wait: ", weaponSpawnWait)
-	for lobby.MatchInProgress() {
-		if !lobby.MatchInProgress() {
-			break
-		}
-
-		if int(time.Now().Sub(lastWeaponSpawn)/time.Second) >= weaponSpawnWait {
-			lobby.SpawnWeaponRandom()
-
-			weaponSpawnWait = randomizer.Intn(lobby.WeaponSpawnRateMax-lobby.WeaponSpawnRateMin+1) + lobby.WeaponSpawnRateMin
-			log.Trace("Weapon next spawn wait: ", weaponSpawnWait)
-			lastWeaponSpawn = time.Now()
-		}
-	}
+	go lobby.GameMode.StartMatch(lobby)
 }
 
 //MatchInProgress returns true if the match is in progress
@@ -878,7 +905,6 @@ func (lobby *Lobby) UnReadyAllPlayers() {
 		if lobby.Clients[i].GetPlayerCount() > 0 {
 			for j := 0; j < len(lobby.Clients[i].Players); j++ {
 				lobby.Clients[i].Players[j].Ready = false
-				lobby.Clients[i].Players[j].Health = lobby.GetMaxHealth()
 			}
 		}
 	}
@@ -950,6 +976,13 @@ func (lobby *Lobby) ChangeMap(mapIndex, winnerIndex int) {
 
 	lobby.FightStartTime = time.Time{}
 	lobby.UnReadyAllPlayers()
+
+	//Wait for the game mode to finish processing the match
+	for !lobby.GameMode.IsDone() {
+		if lobby.GameMode.IsDone() {
+			break
+		}
+	}
 
 	lobby.CompletedLevelsSinceLastStats++
 
@@ -1054,11 +1087,13 @@ func (lobby *Lobby) PlayerUpdate(packet *Packet) { //420 IQ level strats here, b
 		return
 	}
 
-	if !lobby.CurrentLevel.IsLobby() {
-		if !lobby.MatchInProgress() {
-			return
+	/*
+		if !lobby.CurrentLevel.IsLobby() {
+			if !lobby.MatchInProgress() {
+				return
+			}
 		}
-	}
+	*/
 
 	clientIndex, client := lobby.GetClientByAddr(packet.Src) //Get the client index that this playerUpdate packet is from
 	if client == nil {
@@ -1083,10 +1118,10 @@ func (lobby *Lobby) PlayerUpdate(packet *Packet) { //420 IQ level strats here, b
 	lobby.BroadcastPacket(packet, packet.Src)
 
 	netPosition := NetworkPosition{
-		Position:     Vector2{float32(packet.ReadI16LENext(1)[0]), float32(packet.ReadI16LENext(1)[0])}, //Read in the position of the player
-		Rotation:     Vector2{float32(packet.ReadByteNext()), float32(packet.ReadByteNext())},           //Read in the rotation axis of the player
-		YValue:       int(packet.ReadByteNext()),                                                        //Read in the player's YValue (known to be 100 for holding the up key, 156 for holding the down key, unknown for controllers)
-		MovementType: MovementType(packet.ReadByteNext()),                                               //Read in the movement type of the player
+		Position:     Vector3{Y: float32(packet.ReadI16LENext(1)[0]) / 100.0, Z: float32(packet.ReadI16LENext(1)[0]) / 100.0}, //Read in the position of the player
+		Rotation:     Vector2{float32(packet.ReadByteNext()) / 100.0, float32(packet.ReadByteNext()) / 100.0},                 //Read in the rotation axis of the player
+		YValue:       float32(packet.ReadByteNext()) / 100.0,                                                                  //Read in the player's YValue (known to be 100 for holding the up key, 156 for holding the down key, unknown for controllers)
+		MovementType: MovementType(packet.ReadByteNext()),                                                                     //Read in the movement type of the player
 	}
 
 	netWeapon := NetworkWeapon{
@@ -1108,9 +1143,9 @@ func (lobby *Lobby) PlayerUpdate(packet *Packet) { //420 IQ level strats here, b
 		packet.SeekByte((int64(projectileCount)*8)-int64(256), true) //Seek ahead so that the weapon type can be correctly read
 		//TODO: Store pages of projectiles or find an alternative indexing that supports uint16 or int16 indexes
 	}
-	netWeapon.WeaponType = WeaponType(packet.ReadByteNext()) //Read in the player's current weapon type
+	netWeapon.Weapon = Weapon(packet.ReadByteNext()) //Read in the player's current weapon
 
-	//Here's the strat
+	//Here's the strat in action
 	lobby.Clients[clientIndex].Players[clientPlayerIndex].Position = netPosition
 	lobby.Clients[clientIndex].Players[clientPlayerIndex].Weapon = netWeapon
 
@@ -1118,8 +1153,7 @@ func (lobby *Lobby) PlayerUpdate(packet *Packet) { //420 IQ level strats here, b
 		log.Debug(
 			"Player ", playerIndex, ": ",
 			"Position(", netPosition.Position, ") Rotation(", netPosition.Rotation, ") YValue:", netPosition.YValue, " Movement: ", netPosition.MovementType,
-			" Fight:", netWeapon.FightState, " WeaponType:", netWeapon.WeaponType,
-			" Projectiles:", projectiles,
+			" Fight:", netWeapon.FightState, " Weapon:", netWeapon.Weapon, " Projectiles:", projectiles,
 		)
 	}
 }
@@ -1194,6 +1228,8 @@ func (lobby *Lobby) PlayerTookDamage(packet *Packet) {
 		//Kill the targeted player
 		lobby.Clients[clientIndex].Players[clientPlayerIndex].Health = 0
 		lobby.Clients[clientIndex].Players[clientPlayerIndex].Stats.Deaths++
+		lobby.Clients[clientIndex].Players[clientPlayerIndex].LastAttackerIndex = attackerIndex
+		lobby.Clients[clientIndex].Players[clientPlayerIndex].LastDamageType = damageType
 
 		//Give the attacker a kill
 		if attackerIndex != playerIndex {
@@ -1301,6 +1337,39 @@ func (lobby *Lobby) PlayerTalked(packet *Packet) {
 		switch cmd[0] {
 		case "options":
 			lobby.Server.SendPacket(NewPacket(packetTypeRequestingOptions, 0, 0), packet.Src)
+		case "pos", "position":
+			position := lobby.Clients[clientIndex].Players[clientPlayerIndex].Position.Position
+			lobby.PlayerSaid(playerIndex, fmt.Sprintf("%s", position))
+		case "weapon":
+			if len(cmd) < 2 {
+				lobby.PlayerSaid(playerIndex, "Current weapon:\n%s", string(lobby.Clients[clientIndex].Players[clientPlayerIndex].Weapon.Weapon))
+				return
+			}
+
+			if lobby.IsOwner(lobby.Clients[clientIndex].SteamID) {
+				selectedWeapon := weaponEmpty
+				for i := 0; i < len(validWeapons); i++ {
+					if strings.Join(cmd[1:], " ") == validWeapons[i].String() {
+						selectedWeapon = validWeapons[i]
+						break
+					}
+				}
+				if selectedWeapon == weaponEmpty {
+					i, err := strconv.Atoi(cmd[1])
+					if err == nil {
+						selectedWeapon = Weapon(i)
+					}
+				}
+
+				if selectedWeapon != weaponEmpty {
+					lobby.UpdateWeapon(playerIndex, selectedWeapon)
+					lobby.PlayerSaid(playerIndex, "Received "+selectedWeapon.String())
+					return
+				}
+				lobby.PlayerSaid(playerIndex, "Invalid weaponName!")
+			} else {
+				lobby.PlayerSaid(playerIndex, "No permissions!")
+			}
 
 		case "ping":
 			delay := uint32(time.Now().Unix()) - packet.Timestamp
@@ -1335,17 +1404,36 @@ func (lobby *Lobby) PlayerTalked(packet *Packet) {
 				lobby.StartMatch()
 			}
 
-		case "tourney", "tournament", "challenge", "hard", "hardmode":
+		case "gamemode", "gm", "game", "mode", "mod":
+			if len(cmd) < 2 {
+				switch lobby.GameMode.(type) {
+				case Stock:
+					lobby.PlayerSaid(playerIndex, "GameMode: Stock")
+				case Tournament:
+					lobby.PlayerSaid(playerIndex, "GameMode: Tournament")
+				case GunGame:
+					lobby.PlayerSaid(playerIndex, "GameMode: GunGame")
+				default:
+					lobby.PlayerSaid(playerIndex, "Unknown gamemode!")
+				}
+				break
+			}
+
 			if lobby.IsOwner(lobby.Clients[clientIndex].SteamID) {
-				lobby.TourneyRules = !lobby.TourneyRules
-				if lobby.TourneyRules {
-					lobby.PlayerSaid(playerIndex, "Enabled tournament rules!")
-					lobby.WeaponSpawnRateMin = 3
-					lobby.WeaponSpawnRateMax = 5
-					lobby.Weapons = tourneyWeapons
-				} else {
-					lobby.PlayerSaid(playerIndex, "Disabled tournament rules!")
-					lobby.Server.SendPacket(NewPacket(packetTypeRequestingOptions, 0, 0), packet.Src) //Request the host's options
+				switch cmd[1] {
+				case "stock", "default", "original", "og", "regular", "vanilla", "sf", "stick", "fight", "stickfight", "landfall", "official":
+					lobby.NextGameMode = Stock{}
+					lobby.PlayerSaid(playerIndex, "Set gamemode to Stock!")
+				case "tourney", "tournament", "challenge", "hard", "hardcore", "hardmode":
+					lobby.NextGameMode = Tournament{}
+					lobby.PlayerSaid(playerIndex, "Set gamemode to Tournament!")
+				case "gun", "roulette", "gungame":
+					lobby.NextGameMode = GunGame{
+						PlayerData: make([]GunGamePlayerData, lobby.GetPlayerCount(false)),
+					}
+					lobby.PlayerSaid(playerIndex, "Set gamemode to Gun Game!")
+				default:
+					lobby.PlayerSaid(playerIndex, "Unknown gamemode!")
 				}
 			} else {
 				lobby.PlayerSaid(playerIndex, "No permissions!")
@@ -1413,13 +1501,52 @@ func (lobby *Lobby) PlayerTalked(packet *Packet) {
 				break
 			}
 
-			packetPlayerUpdate := NewPacket(packetTypePlayerUpdate, lobby.Clients[clientIndex].Players[clientPlayerIndex].GetChannelUpdate(), lobby.Clients[clientIndex].SteamID.ID)
-			packetPlayerUpdate.Grow(12)
-			packetPlayerUpdate.WriteI16LENext([]int16{int16(posX), int16(posY)})
-			packetPlayerUpdate.WriteBytesNext(make([]byte, 8))
+			timesTried := 0
+			maxTries := 50
+			for {
+				if !lobby.IsRunning() {
+					break
+				}
+				if len(lobby.Clients) <= clientIndex {
+					break
+				}
+				if len(lobby.Clients[clientIndex].Players) <= clientPlayerIndex {
+					break
+				}
 
-			lobby.BroadcastPacket(packetPlayerUpdate, nil)
-			lobby.PlayerSaid(playerIndex, "Traveled to X:%d Y:%d", posX, posY)
+				position4 := lobby.Clients[clientIndex].Players[clientPlayerIndex].Position.Position
+				pos4x := int(position4.X)
+				pos4y := int(position4.Y)
+				coordRange := 3
+				minX := posX - coordRange
+				maxX := posX + coordRange
+				minY := posY - coordRange
+				maxY := posY + coordRange
+
+				if pos4x > minX && pos4x < maxX && pos4y > minY && pos4y < maxY {
+					break
+				}
+
+				packetPlayerUpdate := NewPacket(packetTypePlayerUpdate, lobby.Clients[clientIndex].Players[clientPlayerIndex].GetChannelUpdate(), lobby.Clients[clientIndex].SteamID.ID)
+				packetPlayerUpdate.Grow(12)
+				packetPlayerUpdate.WriteI16LENext([]int16{int16(posX), int16(posY)})
+				packetPlayerUpdate.WriteBytesNext(make([]byte, 8))
+
+				lobby.BroadcastPacket(packetPlayerUpdate, nil)
+
+				timesTried++
+				if timesTried > maxTries {
+					break
+				}
+
+				time.Sleep(time.Millisecond * 25)
+			}
+
+			if timesTried > maxTries {
+				lobby.PlayerSaid(playerIndex, "Failed to travel that far!")
+			} else {
+				lobby.PlayerSaid(playerIndex, "Traveled towards\nX:%d Y:%d", posX, posY)
+			}
 
 		case "map":
 			if len(cmd) < 2 {
@@ -1547,7 +1674,7 @@ func (lobby *Lobby) SpawnWeapon(weaponID Weapon, weaponSpawnPos Vector3) {
 
 	packetWeaponSpawned := NewPacket(packetTypeWeaponSpawned, 0, 0)
 	packetWeaponSpawned.Grow(8)
-	packetWeaponSpawned.WriteByteNext(byte(weaponID))
+	packetWeaponSpawned.WriteByteNext(byte(weaponID) - 0x1)
 	packetWeaponSpawned.WriteBytesNext([]byte{byte(weaponSpawnPos.Y), byte(weaponSpawnPos.Z)})
 	packetWeaponSpawned.WriteU16LENext([]uint16{nextWeaponSpawnID, nextObjectSpawnID})
 	if lobby.CurrentLevel.IsLobby() && lobby.CurrentLevel.IsStats() && lobby.CurrentLevel.sceneIndex >= 104 && lobby.CurrentLevel.sceneIndex <= 124 {
@@ -1607,4 +1734,25 @@ func (lobby *Lobby) SpawnWeaponRandom() {
 	}
 
 	lobby.SpawnWeapons(weapons, weaponSpawnPositions)
+}
+
+//UpdateWeapon updates a player's weapon
+func (lobby *Lobby) UpdateWeapon(playerIndex int, weapon Weapon) {
+	clientIndex, clientPlayerIndex := lobby.GetIndexesByPlayerIndex(playerIndex)
+	if clientIndex <= -1 || clientPlayerIndex <= -1 {
+		return
+	}
+
+	player := lobby.Clients[clientIndex].Players[clientPlayerIndex]
+
+	packetPlayerUpdate := NewPacket(packetTypePlayerUpdate, player.GetChannelUpdate(), player.Client.SteamID.ID)
+	packetPlayerUpdate.Grow(12)
+
+	packetPlayerUpdate.WriteI16LENext([]int16{int16(player.Position.Position.Y * 100.0), int16(player.Position.Position.Z * 100.0)})
+	packetPlayerUpdate.WriteBytesNext([]byte{byte(player.Position.Rotation.X * 100.0), byte(player.Position.Rotation.Y * 100.0),
+		byte(player.Position.YValue * 100.0), byte(player.Position.MovementType), byte(player.Weapon.FightState)})
+	packetPlayerUpdate.WriteU16LENext([]uint16{0})
+	packetPlayerUpdate.WriteByteNext(byte(weapon))
+
+	lobby.BroadcastPacket(packetPlayerUpdate, nil)
 }
