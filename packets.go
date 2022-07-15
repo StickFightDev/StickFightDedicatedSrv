@@ -1,12 +1,16 @@
 package main
 
 import (
+	"bufio"
 	"errors"
 	"fmt"
+	"io"
 	"net"
+	"net/http"
 	"time"
 
 	crunch "github.com/superwhiskers/crunch/v3"
+	"github.com/JoshuaDoes/json"
 )
 
 const (
@@ -23,11 +27,31 @@ type Packet struct {
 	Channel   int          //The channel for this packet to travel through
 	SteamID   CSteamID     //The Steam ID of the user who sent or is intended to receive this packet
 	Type      PacketType   //The type of the packet, to allow easy packet creation
+
+	pos int //io.Reader
+}
+
+func (packet *Packet) Read(p []byte) (n int, err error) {
+	//packetBytes := packet.AsBytes()
+	packetBytes := packet.Bytes()
+	if packet.Type != packetTypeHTTP {
+		packetBytes = packet.AsBytes()
+	}
+
+	start := packet.pos
+	for i := 0; i < len(p); i++ {
+		if (start + i) >= len(packetBytes) {
+			return packet.pos - start, io.EOF
+		}
+		p[i] = packetBytes[start + i]
+		packet.pos++
+	}
+	return packet.pos - start, nil
 }
 
 //NewPacket returns a new deserialized Stick Fight network packet
 func NewPacket(packetType PacketType, channel int, steamID uint64) *Packet {
-	return &Packet{crunch.NewBuffer(make([]byte, 0)), uint32(time.Now().Unix()), nil, channel, NewCSteamID(steamID), packetType}
+	return &Packet{crunch.NewBuffer(make([]byte, 0)), uint32(time.Now().Unix()), nil, channel, NewCSteamID(steamID), packetType, 0}
 }
 
 //NewPacketFromBytes returns a Stick Fight network packet deserialized from bytes
@@ -38,6 +62,34 @@ func NewPacketFromBytes(data []byte) (packet *Packet, err error) {
 
 	buf := crunch.NewBuffer(data)
 	dataLen := int64(len(data) - sophSize - eophSize)
+
+	//Determine if we're dealing with HTTP GET requests first
+	test := buf.ReadBytesNext(3) //GET is 3 bytes
+	buf.SeekByte(0, false) //Reset our position in the buffer
+	if string(test) == "GET" {
+		packetGet := NewPacket(packetTypeHTTP, 0, 0)
+		packetGet.Grow(int64(len(data)))
+		packetGet.WriteBytesNext(data)
+		req, err := http.ReadRequest(bufio.NewReader(packetGet))
+		if err != nil {
+			return nil, err
+		}
+
+		switch req.URL.Path {
+			case "/status": {
+				packetStatus := NewPacket(packetTypeHTTP, 0, 0)
+				statusJSON, err := json.Marshal(server.Status(), false)
+				if err != nil {
+					return nil, err
+				}
+				packetStatus.Grow(int64(len(statusJSON)))
+				packetStatus.WriteBytesNext(statusJSON)
+				return packetStatus, nil
+			}
+		}
+
+		return nil, errors.New(fmt.Sprintf("unhandled GET: %s", req.URL.Path))
+	}
 
 	//Official start of packet header
 	//Size: 5 bytes + data
@@ -116,6 +168,8 @@ type PacketType byte
 
 func (packetType PacketType) String() string {
 	switch packetType {
+	case packetTypeHTTP:
+		return "HTTP"
 	case packetTypePing:
 		return "ping"
 	case packetTypePingResponse:
@@ -246,5 +300,6 @@ const (
 	packetTypeClientLeft
 	packetTypeLobbyType
 	packetTypeRequestingOptions
+	packetTypeHTTP = 254
 	packetTypeNull = 255
 )

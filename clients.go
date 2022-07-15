@@ -20,16 +20,18 @@ type Client struct {
 
 	//Client session tracking
 	Paused bool //If the player is marked as paused, will make the lobby ignore the player's automatic ready-up
+	ClientInit *Packet //Cached ClientInit packet for lobby migration
 }
 
 //NewClient returns a new client
-func NewClient(lobby *Lobby, addr *net.UDPAddr, steamID uint64, playerCount int) *Client {
+func NewClient(lobby *Lobby, addr *net.UDPAddr, steamID uint64, playerCount int, clientInit *Packet) *Client {
 	newClient := &Client{
 		Lobby: lobby,
 		Addr:  addr,
 		//LastTick: time.Now(),
 		SteamID: NewCSteamID(steamID),
 		Players: make([]*Player, playerCount),
+		ClientInit: clientInit,
 	}
 
 	for i := 0; i < playerCount; i++ {

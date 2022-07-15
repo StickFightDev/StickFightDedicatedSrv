@@ -5,7 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"io/ioutil"
+	"regexp"
+	"unicode"
 
+	"golang.org/x/text/transform"
+	"golang.org/x/text/unicode/norm"
 	"github.com/JoshuaDoes/json"
 	"github.com/Philipp15b/go-steamapi"
 )
@@ -16,8 +20,9 @@ var (
 
 //CSteamID holds a Steam client ID and its username
 type CSteamID struct {
-	ID       uint64
-	Username string
+	ID           uint64
+	Username     string
+	NormUsername string
 }
 
 //NewCSteamID returns a new Steam client ID
@@ -29,7 +34,7 @@ func NewCSteamID(steamID uint64) CSteamID {
 	return clientID
 }
 
-//GetUsername returns the username of the CSteamID
+//GetUsername returns the username of the CSteamID and caches it in memory
 func (cSteamID CSteamID) GetUsername() string {
 	if cSteamID.Username != "" {
 		return cSteamID.Username
@@ -52,6 +57,31 @@ func (cSteamID CSteamID) GetUsername() string {
 	steamUsernames[cSteamID.ID] = summaries[0].PersonaName
 	cSteamID.Username = steamUsernames[cSteamID.ID]
 	return cSteamID.Username
+}
+
+//GetNormalizedUsername returns a normalized version of the username of the CSteamID and caches it in memory
+func (cSteamID CSteamID) GetNormalizedUsername() string {
+	if cSteamID.NormUsername != "" {
+		return cSteamID.NormUsername
+	}
+
+	username := cSteamID.GetUsername()
+	username = regexp.MustCompile(`<.*?>`).ReplaceAllString(username, "")
+	username = regexp.MustCompile(`[^a-zA-Z0-9]+`).ReplaceAllString(username, "")
+	username = stripTags.Sanitize(username)
+
+	bytes := make([]byte, len(username))
+	normalize := transform.Chain(norm.NFD, transform.RemoveFunc(func(r rune) bool {
+		return unicode.Is(unicode.Mn, r)
+	}), norm.NFC)
+	_, _, err := normalize.Transform(bytes, []byte(username), true)
+	if err != nil {
+		return username
+	}
+
+	username = string(bytes)
+	cSteamID.NormUsername = username
+	return cSteamID.NormUsername
 }
 
 //CompareCSteamID evaluates if a CSteamID is the same as another

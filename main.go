@@ -10,6 +10,7 @@ import (
 
 	"github.com/JoshuaDoes/logger"
 	"github.com/StickFightDev/steamcmd"
+	"github.com/microcosm-cc/bluemonday"
 )
 
 //Command-line flags and their defaults
@@ -36,6 +37,8 @@ var (
 	scmd       *steamcmd.SteamCmd //SteamCMD
 	server     *Server            //StickFightDev server
 	randomizer *rand.Rand         //Seed for random numbers
+
+	stripTags *bluemonday.Policy
 )
 
 func init() {
@@ -51,6 +54,8 @@ func init() {
 	flag.Parse()
 
 	log = logger.NewLogger("sf:srv", verbosityLevel)
+	//stripTags = bluemonday.StripTagsPolicy()
+	stripTags = bluemonday.StrictPolicy()
 }
 
 func main() {
